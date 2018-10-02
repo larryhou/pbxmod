@@ -148,38 +148,47 @@ class XcodeProject(object):
         print(buffer.read())
 
     def is_pbx_key(self, value:str)->bool:
-        return len(value) == 24 and value in self.has_pbx_object(value)
+        return len(value) == 24 and self.has_pbx_object(value)
 
-    def to_pbx_json(self, data:any, indent:str = '    ', padding:str = '', buffer:io.StringIO = None)->io.StringIO:
+    def to_pbx_json(self, data:any, note_enabled:bool = True, indent:str = '    ', padding:str = '', buffer:io.StringIO = None)->io.StringIO:
         if not buffer: buffer = io.StringIO()
+        library = PBXObject.library
         compact = True if not indent else False
         if isinstance(data, dict):
+            if data.get('isa') in ('PBXFileReference', 'PBXBuildFile'):
+                indent, padding, compact = '', '', True
             buffer.write('{')
             if not compact: buffer.write('\n')
             for name, value in data.items():
-                buffer.write('{}{}{} = '.format(padding, indent, name))
+                buffer.write('{}{}{}'.format(padding, indent, name))
+                if note_enabled and self.is_pbx_key(name): buffer.write(' {}'.format(library.get(name).note()))
+                buffer.write(' = ')
                 if isinstance(value, str):
                     if not value: value = '\"\"'
-                    buffer.write('{}; '.format(value))
+                    buffer.write(value)
+                    if note_enabled and self.is_pbx_key(value): buffer.write(' {}'.format(library.get(value).note()))
+                    buffer.write('; ')
                     if not compact: buffer.write('\n')
                 else:
-                    self.to_pbx_json(value, buffer=buffer, padding=padding + indent)
-            buffer.write('{}}}; '.format(padding))
-            if not compact: buffer.write('\n')
+                    self.to_pbx_json(value, buffer=buffer, padding=padding + indent, indent=indent)
+                    buffer.write('; ')
+                    if not compact: buffer.write('\n')
+            buffer.write('{}}}'.format(padding))
         elif isinstance(data, list):
             buffer.write('(')
             if not compact: buffer.write('\n')
             for value in data:
-                self.to_pbx_json(value, buffer=buffer, padding=padding + indent)
+                self.to_pbx_json(value, buffer=buffer, padding=padding + indent, indent=indent)
                 buffer.write(', ')
                 if not compact: buffer.write('\n')
-            buffer.write('{}); '.format(padding))
-            if not compact: buffer.write('\n')
+            buffer.write('{})'.format(padding))
         else:
             buffer.write('{}{}'.format(padding, data))
+            if note_enabled and self.is_pbx_key(data):buffer.write(' {}'.format(library.get(data).note()))
         return buffer
 
 class PBXObject(object):
+    library = {} # type:dict[str, PBXObject]
     def __init__(self, project:XcodeProject):
         self.project = project
         self.data = None # type:dict
@@ -190,15 +199,20 @@ class PBXObject(object):
         self.uuid = uuid
         self.data = self.project.get_pbx_object(uuid)
         self.isa = self.data.get('isa') # type: str
+        PBXObject.library[uuid] = self
 
-    def note(self, brief = False)->str:
-        return '/* {} */'.format(__class__.__name__)
+    def note(self)->str:
+        return '/* {} */'.format(self.__class__.__name__)
+
+    def trim(self, value:str)->str:
+        return re.sub(r'[\'"]', '', value)
 
     def fill(self):
         for name, value in self.data.items():
             if hasattr(self, name) and isinstance(value, str): # only for string values
                 if len(value) == 24 and value.isupper(): continue # PBXObject reference
                 self.__setattr__(name, value)
+        PBXObject.library[self.uuid] = self
         return self
 
     def generate_uuid(self) -> str:
@@ -217,6 +231,7 @@ class PBXObject(object):
                 uuid = self.generate_uuid()
                 if not self.project.has_pbx_object(uuid):
                     self.project.add_pbx_object(uuid, self.data)
+                    PBXObject.library[uuid] = self
                     self.uuid = uuid
                     break
         return self
@@ -233,11 +248,9 @@ class PBXBuildFile(PBXObject):
         self.fileRef.load(self.data.get('fileRef'))
         self.settings = self.data.get('settings')
 
-    def note(self, brief:bool = False)->str:
-        if brief:
-            return '/* {} */'.format(self.fileRef.name)
-        else:
-            return '/* {} in {} */'.format(self.fileRef.name, re.sub(r'\'\"', '', self.phase.name))
+    def note(self)->str:
+        ref = self.fileRef
+        return '/* {} in {} */'.format(self.trim(ref.name if ref.name else ref.path), self.trim(self.phase.name))
 
     @staticmethod
     def create(project:XcodeProject, file_path:str):
@@ -278,8 +291,8 @@ class PBXGroup(PBXObject):
             item.load(item_uuid)
             self.children.append(item)
 
-    def note(self, brief = False)->str:
-        return '/* {} */'.format(self.path if self.path else self.name)
+    def note(self)->str:
+        return '/* {} */'.format(self.trim(self.path if self.path else self.name))
 
     def sync(self, item:PBXBuildFile):
         components = item.fileRef.path.split('/')
@@ -319,7 +332,7 @@ class PBXVariantGroup(PBXObject):
         self.name = None # type:str
         self.sourceTree = None # type:str
 
-    def note(self, brief = False)->str:
+    def note(self)->str:
         return '/* {} */'.format(self.name)
 
     def load(self, uuid:str):
@@ -351,8 +364,8 @@ class PBXFileReference(PBXObject):
         self.sourceTree = self.data.get('sourceTree') # type:str
         PBXFileReference.library[self.path] = self
 
-    def note(self, brief = False)->str:
-        return '/* {} */'.format(self.name)
+    def note(self)->str:
+        return '/* {} */'.format(self.trim(self.name if self.name else self.path))
 
     @staticmethod
     def create(project, file_path): # type: (XcodeProject, str)->PBXFileReference
@@ -404,8 +417,8 @@ class PBXBuildPhase(PBXObject):
         self.name = None # type: str
         self.runOnlyForDeploymentPostprocessing = None # type: str
 
-    def note(self, brief = False)->str:
-        return '/* {} */'.format(re.sub(r'\"\'', '', self.name))
+    def note(self)->str:
+        return '/* {} */'.format(self.trim(self.name))
 
     def load(self, uuid:str):
         super(PBXBuildPhase, self).load(uuid)
@@ -481,8 +494,8 @@ class PBXNativeTarget(PBXObject):
         self.productName = None # type: str
         self.name = None # type: str
 
-    def note(self, brief = False)->str:
-        return '/* {} */'.format(self.name)
+    def note(self)->str:
+        return '/* {} */'.format(self.trim(self.name))
 
     def load(self, uuid:str):
         super(PBXNativeTarget, self).load(uuid)
@@ -526,7 +539,7 @@ class XCBuildConfiguration(PBXObject):
     @property
     def name(self)->str: return self.data.get('name')
 
-    def note(self, brief = False)->str:
+    def note(self)->str:
         return '/* {} */'.format(self.name)
 
     @property
@@ -554,6 +567,7 @@ class PBXProject(PBXObject):
     def load(self, uuid:str):
         super(PBXProject, self).load(uuid)
         self.targets = []
+        self.buildConfigurationList.load(self.data.get('buildConfigurationList'))
         for target_uuid in self.data.get('targets'): # type: str
             target_item = PBXNativeTarget(self.project)
             target_item.load(target_uuid)
