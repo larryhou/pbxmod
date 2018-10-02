@@ -139,11 +139,36 @@ class XcodeProject(object):
         self.__buffer = open(file_path, mode='rb')
         self.__pbx_data = self.__read_object()
         self.__library = self.__pbx_data.get('objects')  # type: dict
-        print(json.dumps(self.__pbx_data))
         self.__generate_pbx_project()
 
     def dump_pbxproj(self):
-        print(json.dumps(self.__pbx_data, indent=4))
+        # print(json.dumps(self.__pbx_data, indent=4))
+        buffer = self.to_pbx_json(self.__pbx_data)
+        buffer.seek(0)
+        print(buffer.read())
+
+    def is_pbx_key(self, value:str)->bool:
+        return len(value) == 24 and value in self.has_pbx_object(value)
+
+    def to_pbx_json(self, data:any, indent:str = '    ', padding:str = '', buffer:io.StringIO = None)->io.StringIO:
+        if not buffer: buffer = io.StringIO()
+        if isinstance(data, dict):
+            buffer.write('{\n')
+            for name, value in data.items():
+                buffer.write('{}{}{} = '.format(padding, indent, name))
+                if isinstance(value, str):
+                    if not value: value = '\"\"'
+                    buffer.write('{};\n'.format(value))
+                else:
+                    self.to_pbx_json(value, buffer=buffer, padding=padding + indent)
+            buffer.write('{}}};\n'.format(padding))
+        elif isinstance(data, list):
+            buffer.write('(\n')
+            for value in data: self.to_pbx_json(value, buffer=buffer, padding=padding + indent)
+            buffer.write('{});\n'.format(padding))
+        else:
+            buffer.write('{}{};\n'.format(padding, data))
+        return buffer
 
 class PBXObject(object):
     def __init__(self, project:XcodeProject):
@@ -164,8 +189,7 @@ class PBXObject(object):
                 self.__setattr__(name, value)
         return self
 
-    @staticmethod
-    def generate_uuid() -> str:
+    def generate_uuid(self) -> str:
         md5 = hashlib.md5()
         timestamp = time.mktime(time.localtime()) + time.process_time()
         md5.update('{}-{}'.format(timestamp, random.random()).encode('utf-8'))
@@ -178,7 +202,7 @@ class PBXObject(object):
             self.project.add_pbx_object(self.uuid, self.data)
         else:
             while True:
-                uuid = PBXObject.generate_uuid()
+                uuid = self.generate_uuid()
                 if not self.project.has_pbx_object(uuid):
                     self.project.add_pbx_object(uuid, self.data)
                     self.uuid = uuid
@@ -227,7 +251,7 @@ class PBXGroup(PBXObject):
         for item_uuid in self.data.get('children'):
             data = self.project.get_pbx_object(item_uuid) # type:dict
             item = globals().get(data.get('isa'))(self.project) # type: PBXObject
-            print(item, item_uuid)
+            # print(item, item_uuid)
             item.load(item_uuid)
             self.children.append(item)
 
@@ -277,7 +301,7 @@ class PBXVariantGroup(PBXObject):
         for item_uuid in self.data.get('children'):
             data = self.project.get_pbx_object(item_uuid) # type:dict
             item = globals().get(data.get('isa'))(self.project) # type: PBXObject
-            print(item, item_uuid)
+            # print(item, item_uuid)
             item.load(item_uuid)
             self.children.append(item)
 
@@ -298,12 +322,11 @@ class PBXFileReference(PBXObject):
         self.sourceTree = self.data.get('sourceTree') # type:str
         PBXFileReference.library[self.path] = self
 
-    @staticmethod
-    def generate_uuid() -> str:
-        md5 = hashlib.md5()
-        timestamp = time.mktime(time.localtime()) + time.process_time()
-        md5.update('{}-{}'.format(timestamp, random.random()).encode('utf-8'))
-        return md5.hexdigest()[:24].upper()
+    # def generate_uuid(self) -> str:
+    #     md5 = hashlib.md5()
+    #     timestamp = time.mktime(time.localtime()) + time.process_time()
+    #     md5.update('{}-{}'.format(timestamp, random.random()).encode('utf-8'))
+    #     return md5.hexdigest()[:24].upper()
 
     @staticmethod
     def create(project, file_path): # type: (XcodeProject, str)->PBXFileReference
@@ -512,9 +535,6 @@ class PBXProject(PBXObject):
         assert self.resources_phase
         assert self.sources_phase
 
-    def dump(self)->str:
-        return ''
-
     def add_build_setting(self, field_name:str, field_value:any, config_name:str = None):
         target = self.targets[0]
         for config in target.buildConfigurationList.buildConfigurations:
@@ -522,7 +542,7 @@ class PBXProject(PBXObject):
                 value = config.buildSettings[field_name]
                 if isinstance(value, list):
                     value.append(field_value)
-                    type(self).unique_array(value)
+                    self.__unique_array(value)
                 else:
                     config.buildSettings[field_name] = field_value
 
@@ -560,15 +580,14 @@ class PBXProject(PBXObject):
         elif extension == 'entitlements':
             self.add_entitlements(file_path, need_sync=False)
 
-    @staticmethod
-    def unique_array(array:List[any]):
+    def __unique_array(self, array:List[any]):
         unique_list = []  # type: list[any]
         for item in array:
             if item not in unique_list: unique_list.append(item)
         array.clear()
         array.extend(unique_list)
 
-    def ensure_array_field(self, field_name:str):
+    def __ensure_array_field(self, field_name:str):
         target = self.targets[0]
         for config in target.buildConfigurationList.buildConfigurations:
             field_value = config.buildSettings.get(field_name)
@@ -577,7 +596,7 @@ class PBXProject(PBXObject):
             elif isinstance(field_value, str):
                 config.buildSettings[field_name] = [field_value]
             elif isinstance(field_value, list):
-                type(self).unique_array(array=field_value)
+                self.__unique_array(array=field_value)
             else:
                 raise AttributeError('not expect {}={!r} here'.format(field_name, type(field_value)))
 
@@ -590,13 +609,13 @@ class PBXProject(PBXObject):
         elif flags_type == FlagsType.C_PLUS_PLUS.name:
             field_name = 'OTHER_CPLUSPLUSFLAGS'
         else:raise AttributeError('not expect flags with type')
-        self.ensure_array_field(field_name)
+        self.__ensure_array_field(field_name)
         target = self.targets[0]
         for config in target.buildConfigurationList.buildConfigurations:
             if not config_name or config.name == config_name:
                 field_value = config.buildSettings[field_name] # type: list[str]
                 field_value.extend(flags)
-                type(self).unique_array(field_value)
+                self.__unique_array(field_value)
 
     def add_shell(self, script_path:str, shell:str = '/bin/sh'):
         phase = PBXShellScriptBuildPhase(self.project)
@@ -629,3 +648,4 @@ if __name__ == '__main__':
     options = arguments.parse_args(sys.argv[1:])
     xcode_project = XcodeProject()
     xcode_project.load_pbxproj(file_path=options.file_path)
+    xcode_project.dump_pbxproj()
