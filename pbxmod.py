@@ -152,22 +152,31 @@ class XcodeProject(object):
 
     def to_pbx_json(self, data:any, indent:str = '    ', padding:str = '', buffer:io.StringIO = None)->io.StringIO:
         if not buffer: buffer = io.StringIO()
+        compact = True if not indent else False
         if isinstance(data, dict):
-            buffer.write('{\n')
+            buffer.write('{')
+            if not compact: buffer.write('\n')
             for name, value in data.items():
                 buffer.write('{}{}{} = '.format(padding, indent, name))
                 if isinstance(value, str):
                     if not value: value = '\"\"'
-                    buffer.write('{};\n'.format(value))
+                    buffer.write('{}; '.format(value))
+                    if not compact: buffer.write('\n')
                 else:
                     self.to_pbx_json(value, buffer=buffer, padding=padding + indent)
-            buffer.write('{}}};\n'.format(padding))
+            buffer.write('{}}}; '.format(padding))
+            if not compact: buffer.write('\n')
         elif isinstance(data, list):
-            buffer.write('(\n')
-            for value in data: self.to_pbx_json(value, buffer=buffer, padding=padding + indent)
-            buffer.write('{});\n'.format(padding))
+            buffer.write('(')
+            if not compact: buffer.write('\n')
+            for value in data:
+                self.to_pbx_json(value, buffer=buffer, padding=padding + indent)
+                buffer.write(', ')
+                if not compact: buffer.write('\n')
+            buffer.write('{}); '.format(padding))
+            if not compact: buffer.write('\n')
         else:
-            buffer.write('{}{};\n'.format(padding, data))
+            buffer.write('{}{}'.format(padding, data))
         return buffer
 
 class PBXObject(object):
