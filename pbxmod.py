@@ -500,6 +500,7 @@ class PBXNativeTarget(PBXObject):
     def load(self, uuid:str):
         super(PBXNativeTarget, self).load(uuid)
         self.buildConfigurationList.load(self.data.get('buildConfigurationList'))
+        self.buildConfigurationList.target = self
         self.buildPhases = []
         for phase_uuid in self.data.get('buildPhases'):
             phase_name = self.project.get_pbx_object(phase_uuid).get('isa')
@@ -519,10 +520,16 @@ class XCConfigurationList(PBXObject):
     def __init__(self, project:XcodeProject):
         super(XCConfigurationList, self).__init__(project)
         self.buildConfigurations = [] # type: list[XCBuildConfiguration]
+        self.target = None # type:PBXNativeTarget
 
     @property
     def defaultConfigurationName(self)->str:
         return self.data.get('defaultConfigurationName')
+
+    def note(self):
+        note = 'Build configuration list for '
+        note += 'PBXNativeTarget {}'.format(self.target.name) if self.target else 'PBXProject'
+        return '/* {} */'.format(note)
 
     def load(self, uuid:str):
         super(XCConfigurationList, self).load(uuid)
