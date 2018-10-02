@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse, sys, os, io, json, enum, hashlib, time, random
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 TERMINATOR_CHARSET = b' \t\n,;'
 
@@ -157,16 +157,132 @@ class PBXObject(object):
         self.data = self.project.get_pbx_object(uuid)
         self.isa = self.data.get('isa') # type: str
 
+    def fill(self):
+        for name, value in self.data.items():
+            if hasattr(self, name) and isinstance(value, str): # only for string values
+                if len(value) == 24 and value.isupper(): continue # PBXObject reference
+                self.__setattr__(name, value)
+        return self
+
+    @staticmethod
+    def generate_uuid() -> str:
+        md5 = hashlib.md5()
+        timestamp = time.mktime(time.localtime()) + time.process_time()
+        md5.update('{}-{}'.format(timestamp, random.random()).encode('utf-8'))
+        return md5.hexdigest()[:24].upper()
+
+    def attach(self):
+        if not self.data:
+            self.data = {'isa': __class__.__name__}
+        if self.uuid and self.project.has_pbx_object(self.uuid):
+            self.project.add_pbx_object(self.uuid, self.data)
+        else:
+            while True:
+                uuid = PBXObject.generate_uuid()
+                if not self.project.has_pbx_object(uuid):
+                    self.project.add_pbx_object(uuid, self.data)
+                    self.uuid = uuid
+                    break
+        return self
+
 class PBXBuildFile(PBXObject):
     def __init__(self, project:XcodeProject):
         super(PBXBuildFile, self).__init__(project)
         self.fileRef = PBXFileReference(self.project)
+        self.settings = {}
 
     def load(self, uuid:str):
         super(PBXBuildFile, self).load(uuid)
         self.fileRef.load(self.data.get('fileRef'))
+        self.settings = self.data.get('settings')
+
+    @staticmethod
+    def create(project:XcodeProject, file_path:str):
+        file = PBXFileReference.create(project, file_path)
+        item = PBXBuildFile(project).attach()
+        item.data['fileRef'] = file.uuid
+        item.fileRef = file
+        return item
+
+    def add_attributes(self, attributes:Tuple[str] = ('CodeSignOnCopy', 'RemoveHeadersOnCopy')):
+        field_name = 'ATTRIBUTES'
+        if field_name not in self.settings:
+            self.settings[field_name] = []
+        attr_list = self.settings[field_name] # type: list[str]
+        for item in attributes:
+            if item not in attr_list: attr_list.append(item)
+
+class PBXGroup(PBXObject):
+    def __init__(self, project:XcodeProject):
+        super(PBXGroup, self).__init__(project)
+        self.children = [] # type:list[PBXObject]
+        self.path = None # type:str
+        self.sourceTree = None  # type:str
+
+    def load(self, uuid:str):
+        super(PBXGroup, self).load(uuid)
+        self.path = self.data.get('path') # type:str
+        self.sourceTree = self.data.get('sourceTree')  # type:str
+        self.children = []
+        for item_uuid in self.data.get('children'):
+            data = self.project.get_pbx_object(item_uuid) # type:dict
+            item = globals().get(data.get('isa'))(self.project) # type: PBXObject
+            print(item, item_uuid)
+            item.load(item_uuid)
+            self.children.append(item)
+
+    def sync(self, item:PBXBuildFile):
+        components = item.fileRef.path.split('/')
+        parent = self
+        while len(components) > 1:
+            node = parent.fdir(components[0])
+            parent.append(node)
+            del components[0]
+            parent = node
+        parent.append(item)
+
+    def fdir(self, name:str):
+        for item in self.children:
+            if isinstance(item, PBXGroup):
+                if item.path == name: return item
+        item = PBXGroup.create(self.project, name)
+        self.append(item)
+        return item
+
+    def append(self, item:PBXObject):
+        children = self.data.get('children') # type:list[str]
+        if not item.uuid not in children:
+            self.children.append(item)
+            children.append(item.uuid)
+
+    @staticmethod
+    def create(project:XcodeProject, path:str, source_tree:str = '\"<group>\"'):
+        group = PBXGroup(project).attach()
+        group.data.update({'path':path, 'sourceTree':source_tree})
+        group.fill()
+        return group
+
+class PBXVariantGroup(PBXObject):
+    def __init__(self, project:XcodeProject):
+        super(PBXVariantGroup, self).__init__(project)
+        self.children = [] # type:list[PBXObject]
+        self.name = None # type:str
+        self.sourceTree = None # type:str
+
+    def load(self, uuid:str):
+        super(PBXVariantGroup, self).load(uuid)
+        self.name = self.data.get('name') # type:str
+        self.sourceTree = self.data.get('sourceTree') # type:str
+        self.children = []
+        for item_uuid in self.data.get('children'):
+            data = self.project.get_pbx_object(item_uuid) # type:dict
+            item = globals().get(data.get('isa'))(self.project) # type: PBXObject
+            print(item, item_uuid)
+            item.load(item_uuid)
+            self.children.append(item)
 
 class PBXFileReference(PBXObject):
+    library = {} # type: dict[str, PBXFileReference]
     def __init__(self, project:XcodeProject):
         super(PBXFileReference, self).__init__(project)
         self.lastKnownFileType = None # type:str
@@ -180,6 +296,7 @@ class PBXFileReference(PBXObject):
         self.name = self.data.get('name') # type:str
         self.path = self.data.get('path') # type:str
         self.sourceTree = self.data.get('sourceTree') # type:str
+        PBXFileReference.library[self.path] = self
 
     @staticmethod
     def generate_uuid() -> str:
@@ -190,23 +307,36 @@ class PBXFileReference(PBXObject):
 
     @staticmethod
     def create(project, file_path): # type: (XcodeProject, str)->PBXFileReference
+        if file_path in PBXFileReference.library:
+            return PBXFileReference.library.get(file_path)
         file_name = os.path.basename(file_path)
         base_path = os.path.dirname(file_path)
         known_types = {
             'h'  : ('sourcecode.c.h', 'SOURCE_ROOT'),
             'm'  : ('sourcecode.c.objc', 'SOURCE_ROOT'),
+            'a'  : ('archive.ar', 'SOURCE_ROOT'),
             'mm' : ('sourcecode.cpp.objcpp', 'SOURCE_ROOT'),
             'cpp': ('sourcecode.cpp.cpp', 'SOURCE_ROOT'),
+            'xib': ('file.xib', 'SOURCE_ROOT'),
             'entitlements': ('text.plist.entitlements', 'SOURCE_ROOT'),
             'tbd': ('sourcecode.text-based-dylib-definition', 'SDKROOT', 'usr/lib/'),
             'framework': ('wrapper.framework', 'SDKROOT', 'System/Library/Frameworks'),
             'dylib': ('compiled.mach-o.dylib', 'SDKROOT', 'usr/lib'),
             'bundle': ('wrapper.plug-in', 'SOURCE_ROOT'),
-            'png': ('image.png', 'SOURCE_ROOT')
+            'png': ('image.png', 'SOURCE_ROOT'),
+            'xcassets': ('folder.assetcatalog', 'SOURCE_ROOT')
         }
         extension = file_name.split('.')[-1] # type:str
-        data = {'isa': PBXFileReference.__name__, 'name': file_name, 'path': file_path}
-        if extension not in known_types: raise NotImplementedError('not supported file {!r}'.format(file_path))
+        if extension not in known_types:
+            if os.path.isdir(file_path):
+                folder = PBXFileReference(project).attach()
+                folder.data.update({'lastKnownFileType':'folder', 'sourceTree':'SOURCE_ROOT', 'path':file_path})
+                folder.fill()
+                return folder
+            raise NotImplementedError('not supported file {!r}'.format(file_path))
+        ref = PBXFileReference(project).attach()
+        data = ref.data
+        data.update({'name': file_name, 'path': file_path})
         meta = known_types.get(extension)
         data['lastKnownFileType'] = meta[0]
         data['sourceTree'] = meta[1]
@@ -215,13 +345,9 @@ class PBXFileReference(PBXObject):
                 data['path'] = '{}/{}'.format(meta[2], file_name)
             else:
                 data['sourceTree'] = 'SOURCE_ROOT'
-        while True:
-            uuid = PBXFileReference.generate_uuid()
-            if not project.has_pbx_object(uuid):
-                project.add_pbx_object(uuid, data)
-                ref = PBXFileReference(project)
-                ref.load(uuid)
-                return ref
+        ref.fill()
+        PBXFileReference.library[ref.path] = ref
+        return ref
 
 class PBXBuildPhase(PBXObject):
     def __init__(self, project:XcodeProject):
@@ -241,10 +367,17 @@ class PBXSourcesBuildPhase(PBXObject):
 
     def load(self, uuid:str):
         super(PBXSourcesBuildPhase, self).load(uuid)
+        self.files = []
         for file_uuid in self.data.get('files'):
             file_item = PBXBuildFile(self.project)
             file_item.load(file_uuid)
             self.files.append(file_item)
+
+    def append(self, item:PBXBuildFile):
+        files = self.data.get('files') # type:list[str]
+        if item.uuid not in files:
+            self.files.append(item)
+            files.append(item.uuid)
 
 class PBXResourcesBuildPhase(PBXSourcesBuildPhase):
     def __init__(self, project:XcodeProject):
@@ -268,9 +401,13 @@ class PBXShellScriptBuildPhase(PBXBuildPhase):
 class PBXCopyFilesBuildPhase(PBXSourcesBuildPhase):
     def __init__(self, project:XcodeProject):
         super(PBXCopyFilesBuildPhase, self).__init__(project)
+        self.dstPath = '\"\"'
+        self.dstSubfolderSpec = 10 # Frameworks
 
     def load(self, uuid:str):
         super(PBXCopyFilesBuildPhase, self).load(uuid)
+        self.dstPath = self.data.get('dstPath')
+        self.dstSubfolderSpec = self.data.get('dstSubfolderSpec')
 
 class PBXFrameworksBuildPhase(PBXSourcesBuildPhase):
     def __init__(self, project:XcodeProject):
@@ -283,13 +420,14 @@ class PBXNativeTarget(PBXObject):
     def __init__(self, project:XcodeProject):
         super(PBXNativeTarget, self).__init__(project)
         self.buildConfigurationList = XCConfigurationList(self.project)
-        self.buildPhases = []
+        self.buildPhases = [] # type: list[PBXBuildPhase]
         self.productName = None # type: str
         self.name = None # type: str
 
     def load(self, uuid:str):
         super(PBXNativeTarget, self).load(uuid)
         self.buildConfigurationList.load(self.data.get('buildConfigurationList'))
+        self.buildPhases = []
         for phase_uuid in self.data.get('buildPhases'):
             phase_name = self.project.get_pbx_object(phase_uuid).get('isa')
             phase_item = globals().get(phase_name)(self.project) # type: PBXObject
@@ -309,6 +447,7 @@ class XCConfigurationList(PBXObject):
 
     def load(self, uuid:str):
         super(XCConfigurationList, self).load(uuid)
+        self.buildConfigurations = []
         for config_uuid in self.data.get('buildConfigurations'): # type: str
             config_item = XCBuildConfiguration(self.project)
             config_item.load(config_uuid)
@@ -322,7 +461,7 @@ class XCBuildConfiguration(PBXObject):
     def name(self)->str: return self.data.get('name')
 
     @property
-    def buildSettings(self)->Dict[str, str]:
+    def buildSettings(self)->Dict[str, any]:
         return self.data.get('buildSettings')
 
     def load(self, uuid:str):
@@ -336,13 +475,36 @@ class PBXProject(PBXObject):
         super(PBXProject, self).__init__(project)
         self.targets = []  # type: list[PBXNativeTarget]
         self.buildConfigurationList = XCConfigurationList(self.project)
+        self.mainGroup = PBXGroup(self.project)
+
+        self.frameworks_phase_build = None # type: PBXFrameworksBuildPhase
+        self.frameworks_phase_embed = None # type: PBXCopyFilesBuildPhase
+        self.resources_phase = None # type:PBXResourcesBuildPhase
+        self.sources_phase = None # type:PBXSourcesBuildPhase
 
     def load(self, uuid:str):
         super(PBXProject, self).load(uuid)
+        self.targets = []
         for target_uuid in self.data.get('targets'): # type: str
             target_item = PBXNativeTarget(self.project)
             target_item.load(target_uuid)
             self.targets.append(target_item)
+        self.mainGroup.load(self.data.get('mainGroup'))
+        target = self.targets[0]
+        for phase in target.buildPhases:
+            if phase.isa == PBXFrameworksBuildPhase.__name__:
+                if not self.frameworks_phase_build: self.frameworks_phase_build = phase
+            elif phase.isa == PBXCopyFilesBuildPhase.__name__:
+                if not self.frameworks_phase_embed: self.frameworks_phase_embed = phase
+                phase.dstSubfolderSpec = 10 # force to Frameworks
+            elif phase.isa == PBXResourcesBuildPhase.__name__:
+                if not self.resources_phase: self.resources_phase = phase
+            elif phase.isa == PBXSourcesBuildPhase.__name__:
+                if not self.sources_phase: self.sources_phase = phase
+        assert self.frameworks_phase_embed
+        assert self.frameworks_phase_build
+        assert self.resources_phase
+        assert self.sources_phase
 
     def dump(self)->str:
         return ''
@@ -351,19 +513,84 @@ class PBXProject(PBXObject):
         target = self.targets[0]
         for config in target.buildConfigurationList.buildConfigurations:
             if not config_name or config.name == config_name:
-                config.buildSettings[field_name] = field_value
+                value = config.buildSettings[field_name]
+                if isinstance(value, list):
+                    value.append(field_value)
+                    type(self).unique_array(value)
+                else:
+                    config.buildSettings[field_name] = field_value
 
-    def add_framework(self, items:List[str]):
-        pass
+    def add_embedded_framework(self, framework_path:str):
+        self.add_framework(framework_path)
+        file = PBXBuildFile.create(self.project, framework_path)
+        file.add_attributes()
+        self.frameworks_phase_embed.append(file)
 
-    def add_libraries(self, items:List[str]):
-        pass
+    def add_framework(self, framework_path:str, need_sync = True):
+        file = PBXBuildFile.create(self.project, framework_path)
+        self.frameworks_phase_build.append(file)
+        if need_sync: self.mainGroup.sync(file)
 
-    def add_assets(self):
-        pass
+    def add_library(self, library_path:str):
+        self.add_framework(library_path)
 
-    def add_flags(self, flags:List[str], flags_type:FlagsType = FlagsType.COMPILE):
-        pass
+    def add_entitlements(self, file_path, need_sync = True):
+        file = PBXBuildFile.create(self.project, file_path)
+        self.add_build_setting('CODE_SIGN_ENTITLEMENTS', '$(SRCROOT)/{}'.format(file_path))
+        if need_sync: self.mainGroup.sync(file)
+
+    def add_asset(self, file_path:str):
+        file_name = os.path.basename(file_path)
+        extension = file_name.split('.')[-1]
+        file = PBXBuildFile.create(self.project, file_path)
+        self.mainGroup.sync(file)
+        file_type = file.fileRef.lastKnownFileType
+        if extension in ('a', 'tbd', 'framework', 'dylib'):
+            self.add_framework(file_path, need_sync=False)
+        elif extension in ('m', 'mm', 'cpp'):
+            self.sources_phase.append(file)
+        elif extension in ('bundle', 'xib', 'png') or file_type.startswith('folder'):
+            self.resources_phase.append(file)
+        elif extension == 'entitlements':
+            self.add_entitlements(file_path, need_sync=False)
+
+    @staticmethod
+    def unique_array(array:List[any]):
+        unique_list = []  # type: list[any]
+        for item in array:
+            if item not in unique_list: unique_list.append(item)
+        array.clear()
+        array.extend(unique_list)
+
+    def ensure_array_field(self, field_name:str):
+        target = self.targets[0]
+        for config in target.buildConfigurationList.buildConfigurations:
+            field_value = config.buildSettings.get(field_name)
+            if not field_value:
+                config.buildSettings[field_name] = []
+            elif isinstance(field_value, str):
+                config.buildSettings[field_name] = [field_value]
+            elif isinstance(field_value, list):
+                type(self).unique_array(array=field_value)
+            else:
+                raise AttributeError('not expect {}={!r} here'.format(field_name, type(field_value)))
+
+    def add_flags(self, flags:List[str], flags_type:str = FlagsType.COMPILE.name, config_name:str = None):
+        flags_type = flags_type.upper()
+        if flags_type == FlagsType.COMPILE:
+            field_name = 'OTHER_CFLAGS'
+        elif flags_type == FlagsType.LINKING.name:
+            field_name = 'OTHER_LDFLAGS'
+        elif flags_type == FlagsType.C_PLUS_PLUS.name:
+            field_name = 'OTHER_CPLUSPLUSFLAGS'
+        else:raise AttributeError('not expect flags with type')
+        self.ensure_array_field(field_name)
+        target = self.targets[0]
+        for config in target.buildConfigurationList.buildConfigurations:
+            if not config_name or config.name == config_name:
+                field_value = config.buildSettings[field_name] # type: list[str]
+                field_value.extend(flags)
+                type(self).unique_array(field_value)
 
 if __name__ == '__main__':
     arguments = argparse.ArgumentParser()
