@@ -436,6 +436,12 @@ class PBXNativeTarget(PBXObject):
         self.name = self.data.get('name') # type: str
         self.productName = self.data.get('productName') # type: str
 
+    def append_build_phase(self, phase:PBXBuildPhase):
+        phase_list = self.data.get('buildPhases') # type:list[str]
+        if phase.uuid not in phase_list:
+            phase_list.append(phase.uuid)
+            self.buildPhases.append(phase)
+
 class XCConfigurationList(PBXObject):
     def __init__(self, project:XcodeProject):
         super(XCConfigurationList, self).__init__(project)
@@ -600,7 +606,7 @@ class PBXProject(PBXObject):
         /bin/chmod +x $PROJECT_DIR/{}
         $PROJECT_DIR/{}\n
         '''.format(script_path, script_path)})
-        self.targets[0].buildPhases.append(phase)
+        self.targets[0].append_build_phase(phase)
 
     def set_manual_codesign(self, development_team:str, provisioning_uuid:str, provisioning_name:str, sign_identity:str = 'iPhone Developer', config_name:str = None):
         self.add_build_setting('DEVELOPMENT_TEAM', development_team, config_name)
