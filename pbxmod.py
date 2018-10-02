@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import argparse, sys, os, io, json, enum, hashlib, time, random, shutil
+import argparse, sys, os, io, json, enum, hashlib, time, random, shutil, re
 from typing import List, Dict, Tuple
 
 TERMINATOR_CHARSET = b' \t\n,;'
@@ -182,6 +182,9 @@ class PBXObject(object):
         self.data = self.project.get_pbx_object(uuid)
         self.isa = self.data.get('isa') # type: str
 
+    def note(self, brief = False)->str:
+        return '/* {} */'.format(__class__.__name__)
+
     def fill(self):
         for name, value in self.data.items():
             if hasattr(self, name) and isinstance(value, str): # only for string values
@@ -214,11 +217,18 @@ class PBXBuildFile(PBXObject):
         super(PBXBuildFile, self).__init__(project)
         self.fileRef = PBXFileReference(self.project)
         self.settings = {}
+        self.phase = None # type:PBXBuildPhase
 
     def load(self, uuid:str):
         super(PBXBuildFile, self).load(uuid)
         self.fileRef.load(self.data.get('fileRef'))
         self.settings = self.data.get('settings')
+
+    def note(self, brief:bool = False)->str:
+        if brief:
+            return '/* {} */'.format(self.fileRef.name)
+        else:
+            return '/* {} in {} */'.format(self.fileRef.name, re.sub(r'\'\"', '', self.phase.name))
 
     @staticmethod
     def create(project:XcodeProject, file_path:str):
@@ -241,11 +251,15 @@ class PBXGroup(PBXObject):
         super(PBXGroup, self).__init__(project)
         self.children = [] # type:list[PBXObject]
         self.path = None # type:str
+        self.name = None # type:str
         self.sourceTree = None  # type:str
 
     def load(self, uuid:str):
         super(PBXGroup, self).load(uuid)
+        # real disk folder name
         self.path = self.data.get('path') # type:str
+        # virtual folder name in Xcode project
+        self.name = self.data.get('name') # type:str
         self.sourceTree = self.data.get('sourceTree')  # type:str
         self.children = []
         for item_uuid in self.data.get('children'):
@@ -254,6 +268,9 @@ class PBXGroup(PBXObject):
             # print(item, item_uuid)
             item.load(item_uuid)
             self.children.append(item)
+
+    def note(self, brief = False)->str:
+        return '/* {} */'.format(self.path if self.path else self.name)
 
     def sync(self, item:PBXBuildFile):
         components = item.fileRef.path.split('/')
@@ -293,6 +310,9 @@ class PBXVariantGroup(PBXObject):
         self.name = None # type:str
         self.sourceTree = None # type:str
 
+    def note(self, brief = False)->str:
+        return '/* {} */'.format(self.name)
+
     def load(self, uuid:str):
         super(PBXVariantGroup, self).load(uuid)
         self.name = self.data.get('name') # type:str
@@ -322,11 +342,8 @@ class PBXFileReference(PBXObject):
         self.sourceTree = self.data.get('sourceTree') # type:str
         PBXFileReference.library[self.path] = self
 
-    # def generate_uuid(self) -> str:
-    #     md5 = hashlib.md5()
-    #     timestamp = time.mktime(time.localtime()) + time.process_time()
-    #     md5.update('{}-{}'.format(timestamp, random.random()).encode('utf-8'))
-    #     return md5.hexdigest()[:24].upper()
+    def note(self, brief = False)->str:
+        return '/* {} */'.format(self.name)
 
     @staticmethod
     def create(project, file_path): # type: (XcodeProject, str)->PBXFileReference
@@ -378,12 +395,19 @@ class PBXBuildPhase(PBXObject):
         self.name = None # type: str
         self.runOnlyForDeploymentPostprocessing = None # type: str
 
+    def note(self, brief = False)->str:
+        return '/* {} */'.format(re.sub(r'\"\'', '', self.name))
+
     def load(self, uuid:str):
         super(PBXBuildPhase, self).load(uuid)
-        if 'name' in self.data: self.name = self.data.get('name') # type: str
+        if 'name' in self.data:
+            self.name = self.data.get('name') # type: str
+        else:
+            type_name = self.__class__.__name__
+            self.name = type_name[3:].replace('BuildPhase', '')
         self.runOnlyForDeploymentPostprocessing = self.data.get('runOnlyForDeploymentPostprocessing') # type: str
 
-class PBXSourcesBuildPhase(PBXObject):
+class PBXSourcesBuildPhase(PBXBuildPhase):
     def __init__(self, project:XcodeProject):
         super(PBXSourcesBuildPhase, self).__init__(project)
         self.files = []  # type: list[PBXBuildFile]
@@ -394,6 +418,7 @@ class PBXSourcesBuildPhase(PBXObject):
         for file_uuid in self.data.get('files'):
             file_item = PBXBuildFile(self.project)
             file_item.load(file_uuid)
+            file_item.phase = self
             self.files.append(file_item)
 
     def append(self, item:PBXBuildFile):
@@ -447,6 +472,9 @@ class PBXNativeTarget(PBXObject):
         self.productName = None # type: str
         self.name = None # type: str
 
+    def note(self, brief = False)->str:
+        return '/* {} */'.format(self.name)
+
     def load(self, uuid:str):
         super(PBXNativeTarget, self).load(uuid)
         self.buildConfigurationList.load(self.data.get('buildConfigurationList'))
@@ -488,6 +516,9 @@ class XCBuildConfiguration(PBXObject):
 
     @property
     def name(self)->str: return self.data.get('name')
+
+    def note(self, brief = False)->str:
+        return '/* {} */'.format(self.name)
 
     @property
     def buildSettings(self)->Dict[str, any]:
