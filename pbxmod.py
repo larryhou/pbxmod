@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import argparse, sys, os, io, json, enum, hashlib, time, random
+import argparse, sys, os, io, json, enum, hashlib, time, random, shutil
 from typing import List, Dict, Tuple
 
 TERMINATOR_CHARSET = b' \t\n,;'
@@ -536,7 +536,7 @@ class PBXProject(PBXObject):
 
     def add_entitlements(self, file_path, need_sync = True):
         file = PBXBuildFile.create(self.project, file_path)
-        self.add_build_setting('CODE_SIGN_ENTITLEMENTS', '$(SRCROOT)/{}'.format(file_path))
+        self.add_build_setting('CODE_SIGN_ENTITLEMENTS', '$PROJECT_DIR/{}'.format(file_path))
         if need_sync: self.mainGroup.sync(file)
 
     def add_asset(self, file_path:str):
@@ -591,6 +591,31 @@ class PBXProject(PBXObject):
                 field_value = config.buildSettings[field_name] # type: list[str]
                 field_value.extend(flags)
                 type(self).unique_array(field_value)
+
+    def add_shell(self, script_path:str, shell:str = '/bin/sh'):
+        phase = PBXShellScriptBuildPhase(self.project)
+        phase.attach()
+        phase.data.update({'buildActionMask':'2147483647','files':[],'inputPaths':[], 'outputPaths':[], 'runOnlyForDeploymentPostprocessing':'0'})
+        phase.data.update({'shellPath':shell, 'shellScript':'''
+        /bin/chmod +x $PROJECT_DIR/{}
+        $PROJECT_DIR/{}\n
+        '''.format(script_path, script_path)})
+        self.targets[0].buildPhases.append(phase)
+
+    def set_manual_codesign(self, development_team:str, provisioning_uuid:str, provisioning_name:str, sign_identity:str = 'iPhone Developer', config_name:str = None):
+        self.add_build_setting('DEVELOPMENT_TEAM', development_team, config_name)
+        self.add_build_setting('CODE_SIGN_IDENTITY', sign_identity, config_name)
+        self.add_build_setting('PROVISIONING_PROFILE', provisioning_uuid, config_name)
+        self.add_build_setting('PROVISIONING_PROFILE_SPECIFIER', provisioning_name, config_name)
+        self.add_build_setting('CODE_SIGN_STYLE', 'Manual', config_name)
+
+    def set_automatic_codesign(self, development_team:str, sign_identity:str = 'iPhone Developer', config_name:str = None):
+        self.add_build_setting('CODE_SIGN_STYLE', 'Automatic', config_name)
+        self.add_build_setting('DEVELOPMENT_TEAM', development_team, config_name)
+        self.add_build_setting('CODE_SIGN_IDENTITY', sign_identity, config_name)
+
+    def set_package_name(self, name:str):
+        self.add_build_setting('PRODUCT_NAME', name)
 
 if __name__ == '__main__':
     arguments = argparse.ArgumentParser()
