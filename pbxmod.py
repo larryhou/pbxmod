@@ -141,16 +141,16 @@ class XcodeProject(object):
         self.__library = self.__pbx_data.get('objects')  # type: dict
         self.__generate_pbx_project()
 
-    def dump_pbxproj(self):
+    def dump_pbxproj(self, note_enabled=True):
         # print(json.dumps(self.__pbx_data, indent=4))
-        buffer = self.to_pbx_json(self.__pbx_data)
+        buffer = self.__to_pbx_json(self.__pbx_data, note_enabled=note_enabled)
         buffer.seek(0)
         print(buffer.read())
 
-    def is_pbx_key(self, value:str)->bool:
+    def __is_pbx_key(self, value:str)->bool:
         return len(value) == 24 and self.has_pbx_object(value)
 
-    def to_pbx_json(self, data:any, note_enabled:bool = True, indent:str = '    ', padding:str = '', buffer:io.StringIO = None)->io.StringIO:
+    def __to_pbx_json(self, data:any, note_enabled:bool, indent:str = '    ', padding:str = '', buffer:io.StringIO = None)->io.StringIO:
         if not buffer: buffer = io.StringIO()
         library = PBXObject.library
         compact = True if not indent else False
@@ -161,16 +161,16 @@ class XcodeProject(object):
             if not compact: buffer.write('\n')
             for name, value in data.items():
                 buffer.write('{}{}{}'.format(padding, indent, name))
-                if note_enabled and self.is_pbx_key(name): buffer.write(' {}'.format(library.get(name).note()))
+                if note_enabled and self.__is_pbx_key(name): buffer.write(' {}'.format(library.get(name).note()))
                 buffer.write(' = ')
                 if isinstance(value, str):
                     if not value: value = '\"\"'
                     buffer.write(value)
-                    if note_enabled and self.is_pbx_key(value): buffer.write(' {}'.format(library.get(value).note()))
+                    if note_enabled and self.__is_pbx_key(value): buffer.write(' {}'.format(library.get(value).note()))
                     buffer.write('; ')
                     if not compact: buffer.write('\n')
                 else:
-                    self.to_pbx_json(value, buffer=buffer, padding=padding + indent, indent=indent)
+                    self.__to_pbx_json(value, buffer=buffer, padding=padding + indent, indent=indent, note_enabled=note_enabled)
                     buffer.write('; ')
                     if not compact: buffer.write('\n')
             buffer.write('{}}}'.format(padding))
@@ -178,13 +178,13 @@ class XcodeProject(object):
             buffer.write('(')
             if not compact: buffer.write('\n')
             for value in data:
-                self.to_pbx_json(value, buffer=buffer, padding=padding + indent, indent=indent)
+                self.__to_pbx_json(value, buffer=buffer, padding=padding + indent, indent=indent, note_enabled=note_enabled)
                 buffer.write(', ')
                 if not compact: buffer.write('\n')
             buffer.write('{})'.format(padding))
         else:
             buffer.write('{}{}'.format(padding, data))
-            if note_enabled and self.is_pbx_key(data):buffer.write(' {}'.format(library.get(data).note()))
+            if note_enabled and self.__is_pbx_key(data):buffer.write(' {}'.format(library.get(data).note()))
         return buffer
 
 class PBXObject(object):
@@ -709,4 +709,4 @@ if __name__ == '__main__':
     options = arguments.parse_args(sys.argv[1:])
     xcode_project = XcodeProject()
     xcode_project.load_pbxproj(file_path=options.file_path)
-    xcode_project.dump_pbxproj()
+    xcode_project.dump_pbxproj(True)
