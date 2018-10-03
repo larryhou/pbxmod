@@ -29,6 +29,9 @@ class XcodeProject(object):
     def add_pbx_object(self, uuid:str, data:any):
         self.__library[uuid] = data
 
+    def del_pbx_object(self, uuid:str):
+        del self.__library[uuid]
+
     def __read(self, size = 0):
         char = self.__buffer.read(size)
         if not char: raise EOFError('expect more data')
@@ -170,31 +173,31 @@ class XcodeProject(object):
             return buffer.read()
 
     def import_assets(self, base_path:str, assets:[str], exclude_types:Tuple[str] = ('meta',)):
+        print(assets)
         xcode_project_path = os.path.join(os.path.dirname(self.__pbx_project_path), os.pardir)
         xcode_project_path = os.path.abspath(xcode_project_path)
-        script = open(tempfile.mktemp('_import_xcode_assets.sh'), mode='w')
+        script = open(tempfile.mktemp('_import_xcode_assets.sh'), mode='w+')
         script.write('#!/usr/bin/env bash\n')
-        exclude_pattern = open('exclude_pattern.txt', 'w')
+        script.write('cd {}\n'.format(base_path))
+        exclude_pattern = open(os.path.abspath('exclude_pattern.txt'), 'w')
         exclude_pattern.write('.*\n')
         for item_type in exclude_types: exclude_pattern.write('*.{}\n'.format(item_type))
         exclude_pattern.close()
-        qualified_assets = [] # type:list[str]
         for file_path in assets:
             location = os.path.join(base_path, file_path)
-            if os.path.isdir(location) or os.path.isfile(file_path):
-                qualified_assets.append(file_path)
-                script.write('rsync -rvR --exclude-from="{}" "{}" "{}"\n'.format(exclude_pattern.name, base_path, xcode_project_path))
+            if os.path.isdir(location) or os.path.isfile(location):
+                script.write('rsync -rvR --exclude-from="{}" "{}" "{}"\n'.format(exclude_pattern.name, file_path, xcode_project_path))
         script.write('rm -f {}\n'.format(exclude_pattern.name))
         script.write('rm -f {}\n'.format(script.name))
         script.close()
-        assert os.system('bash -x "{}"'.format(script.name)) == 0
-        for file_path in qualified_assets:
+        # assert os.system('bash -x "{}"'.format(script.name)) == 0
+        for file_path in assets:
             self.__pbx_project.add_asset(file_path)
 
     def __find_tree(self, location:str, pattern:Pattern)->List[str]:
         result = [] # type:list[str]
         for node_name in os.listdir(location):
-            if pattern and not pattern.search(node_name): continue
+            if pattern and pattern.search(node_name): continue
             if node_name.startswith('.'): continue
             node_path = os.path.join(location, node_name)
             if os.path.isfile(node_path):
@@ -219,7 +222,7 @@ class XcodeProject(object):
         exclude_list = import_settings.get('exclude') # type:list[str]
         pattern = re.compile(r'\.({})$'.format('|'.join(exclude_list)))
         # embed frameworks
-        embed_frameworks = xcmod.get('embed') # type:list[str]
+        embed_frameworks = import_settings.get('embed') # type:list[str]
         for framework_path in embed_frameworks:
             self.__pbx_project.add_embedded_framework(framework_path)
         # merge all kinds of assets
@@ -230,7 +233,7 @@ class XcodeProject(object):
             if item_cfg.get('type') == 'tree':
                 tree_assets = self.__find_tree(os.path.join(base_path, item_path), pattern)
                 for node_path in tree_assets:
-                    node_path = re.sub(r'^{}/'.format(base_path, '', node_path))
+                    node_path = re.sub(r'^{}/'.format(base_path), '', node_path)
                     assets.append(node_path)
             else:
                 assets.append(item_path)
@@ -310,7 +313,7 @@ class PBXObject(object):
         self.project = project
         self.data = None # type:dict
         self.uuid = None # type:str
-        self.isa = __class__.__name__ # type:str
+        self.isa = self.__class__.__name__ # type:str
 
     def load(self, uuid:str):
         self.uuid = uuid
@@ -340,8 +343,8 @@ class PBXObject(object):
 
     def attach(self):
         if not self.data:
-            self.data = {'isa': __class__.__name__}
-        if self.uuid and self.project.has_pbx_object(self.uuid):
+            self.data = {'isa': self.__class__.__name__}
+        if self.uuid:
             self.project.add_pbx_object(self.uuid, self.data)
         else:
             while True:
@@ -353,9 +356,12 @@ class PBXObject(object):
                     break
         return self
 
+    def detach(self):
+        if self.uuid: self.project.del_pbx_object(self.uuid)
+
 class PBXObjectUnresolved(PBXObject):
     def note(self):
-        return '/* {} */'.format(__class__.__name__)
+        return '/* {} */'.format(self.__class__.__name__)
 
 class PBXBuildFile(PBXObject):
     def __init__(self, project:XcodeProject):
@@ -371,7 +377,11 @@ class PBXBuildFile(PBXObject):
 
     def note(self)->str:
         ref = self.fileRef
-        return '/* {} in {} */'.format(self.trim(ref.name if ref.name else ref.path), self.trim(self.phase.name))
+        if self.phase:
+            return '/* {} in {} */'.format(self.trim(ref.name if ref.name else ref.path), self.trim(self.phase.name))
+        elif not ref.name.endswith('.h'):
+            return '/* EXPECT_PHASE {} */'.format(self.trim(ref.name if ref.name else ref.path))
+        else:return ''
 
     @staticmethod
     def create(project:XcodeProject, file_path:str):
@@ -443,7 +453,7 @@ class PBXGroup(PBXObject):
     @staticmethod
     def create(project:XcodeProject, path:str, source_tree:str = '\"<group>\"'):
         group = PBXGroup(project).attach()
-        group.data.update({'path':path, 'sourceTree':source_tree})
+        group.data.update({'path':path, 'sourceTree':source_tree, 'children':[]})
         group.fill()
         return group
 
@@ -569,7 +579,10 @@ class PBXSourcesBuildPhase(PBXBuildPhase):
         files = self.data.get('files') # type:list[str]
         if item.uuid not in files:
             self.files.append(item)
+            item.phase = self
             files.append(item.uuid)
+        else:
+            item.detach()
 
 class PBXResourcesBuildPhase(PBXSourcesBuildPhase):
     def __init__(self, project:XcodeProject):
@@ -600,6 +613,14 @@ class PBXCopyFilesBuildPhase(PBXSourcesBuildPhase):
         super(PBXCopyFilesBuildPhase, self).load(uuid)
         self.dstPath = self.data.get('dstPath')
         self.dstSubfolderSpec = self.data.get('dstSubfolderSpec')
+
+    @staticmethod
+    def create(project:XcodeProject, name:str = None):
+        phase = PBXCopyFilesBuildPhase(project).attach()
+        phase.data.update({'buildActionMask':'2147483647', 'dstPath':'\"\"', 'dstSubfolderSpec':'10', 'files':[], 'runOnlyForDeploymentPostprocessing':'0'})
+        if name: phase.data['name'] = name
+        phase.load(phase.uuid)
+        return phase
 
 class PBXFrameworksBuildPhase(PBXSourcesBuildPhase):
     def __init__(self, project:XcodeProject):
@@ -713,7 +734,10 @@ class PBXProject(PBXObject):
                 if not self.resources_phase: self.resources_phase = phase
             elif phase.isa == PBXSourcesBuildPhase.__name__:
                 if not self.sources_phase: self.sources_phase = phase
-        # assert self.frameworks_phase_embed
+        if not self.frameworks_phase_embed:
+            self.frameworks_phase_embed = PBXCopyFilesBuildPhase.create(self.project, '"Embeded Frameworks"')
+            self.targets[0].append_build_phase(self.frameworks_phase_embed)
+        assert self.frameworks_phase_embed
         assert self.frameworks_phase_build
         assert self.resources_phase
         assert self.sources_phase
@@ -755,6 +779,7 @@ class PBXProject(PBXObject):
         self.mainGroup.sync(file)
         file_type = file.fileRef.lastKnownFileType
         if extension in ('a', 'tbd', 'framework', 'dylib'):
+            file.detach()
             self.add_framework(file_path, need_sync=False)
         elif extension in ('m', 'mm', 'cpp'):
             self.sources_phase.append(file)
@@ -827,8 +852,9 @@ class PBXProject(PBXObject):
 if __name__ == '__main__':
     arguments = argparse.ArgumentParser()
     arguments.add_argument('--pbxproj-path', '-f', required=True)
-    arguments.add_argument('--xcmode-path', '-x', required=True)
+    arguments.add_argument('--xcmod-path', '-x', required=True)
     options = arguments.parse_args(sys.argv[1:])
     xcode_project = XcodeProject()
     xcode_project.load_pbxproj(file_path=options.pbxproj_path)
     print(xcode_project.dump_pbxproj(True))
+    xcode_project.import_xcmod(file_path=options.xcmod_path)
