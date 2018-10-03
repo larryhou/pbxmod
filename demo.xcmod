@@ -19,6 +19,13 @@
 			"Assets/Plugins/MSDK/iOS/MSDK.framework"
 		]
 	},
+	"settings":{
+		"CODE_SIGN_STYLE":"Automatic",
+		"DEVELOPMENT_TEAM":"PRLP6W5S32",
+		"CODE_SIGN_IDENTITY":"\"iPhone Developer\"",
+		"ENABLE_BITCODE":"NO",
+		"ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES":"YES"
+	},
 	"compiler_flags":[],
 	"link_flags":[],
 	"plist":{

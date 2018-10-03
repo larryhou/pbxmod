@@ -253,6 +253,10 @@ class XcodeProject(object):
             else:
                 assets.append(item_path)
         self.import_assets(base_path, assets + embed_frameworks, exclude_types=tuple(exclude_list))
+        # merge build settings
+        build_settings = xcmod.get('settings') # type: dict[str, str]
+        for name, value in build_settings.items(): # type: str, str
+            self.__pbx_project.add_build_setting(name, value)
         # merge flags
         self.__pbx_project.add_flags(xcmod.get('compiler_flags'), FlagsType.compiler)
         self.__pbx_project.add_flags(xcmod.get('link_flags'), FlagsType.link)
