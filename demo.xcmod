@@ -1,10 +1,17 @@
 {
 	"imports":{
 		"base_path":"~/Downloads/TheNextMOBA/",
-		"excludes":["meta"],
+		"exclude":["meta"],
 		"items":[
 			{"path":"Assets/Plugins/iOS", "type":"tree"},
-			{"path":"Assets/Plugins/MSDK/iOS/WGPlatformResources.bundle"}
+			{"path":"Assets/Plugins/MSDK/iOS/WGPlatformResources.bundle"},
+			{"path":"JavaScriptCore.framework"},
+			{"path":"CoreTelephony.framework"},
+			{"path":"ReplayKit.framework"}
+			
+		],
+		"embed":[
+			"Assets/Plugins/MSDK/iOS/MSDK.framework"
 		]
 	},
 	"compiler_flags":[],

@@ -216,11 +216,17 @@ class XcodeProject(object):
             base_path = os.path.join(os.path.dirname(file_path), base_path) # relative to *.xcmod path
         if not os.path.exists(base_path): raise AssertionError('base_path[={}] not exists'.format(import_settings.get('base_path')))
         base_path = os.path.abspath(base_path)
-        exclude_list = import_settings.get('excludes') # type:list[str]
+        exclude_list = import_settings.get('exclude') # type:list[str]
         pattern = re.compile(r'\.({})$'.format('|'.join(exclude_list)))
+        # embed frameworks
+        embed_frameworks = xcmod.get('embed') # type:list[str]
+        for framework_path in embed_frameworks:
+            self.__pbx_project.add_embedded_framework(framework_path)
+        # merge all kinds of assets
         assets = [] # type:list[str]
         for item_cfg in import_settings.get('items'): # type:dict[str, str]
             item_path = item_cfg.get('path')
+            if item_path in embed_frameworks: continue # same framework is imported only once
             if item_cfg.get('type') == 'tree':
                 tree_assets = self.__find_tree(os.path.join(base_path, item_path), pattern)
                 for node_path in tree_assets:
