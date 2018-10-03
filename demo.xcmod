@@ -4,6 +4,7 @@
 		"exclude":["meta"],
 		"items":[
 			{"path":"Assets/Plugins/iOS", "type":"tree"},
+			{"path":"Assets/Editor/XUPorter/Mods/warsong.entitlements"},
 			{"path":"Assets/Plugins/MSDK/iOS/WGPlatformResources.bundle"},
 			{"path":"Assets/Plugins/MSDK/iOS/WGPlatformResources.bundle"},
 			{"path":"Assets/Plugins/MSDK/iOS/WGPlatformResources.bundle"},

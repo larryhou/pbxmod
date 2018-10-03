@@ -767,6 +767,7 @@ class PBXProject(PBXObject):
         target = self.targets[0]
         for config in target.buildConfigurationList.buildConfigurations:
             if not config_name or config.name == config_name:
+                if field_name not in config.buildSettings: config.buildSettings[field_name] = {}
                 value = config.buildSettings[field_name]
                 if isinstance(value, list):
                     value.append(field_value)
@@ -807,7 +808,7 @@ class PBXProject(PBXObject):
             self.resources_phase.append(file)
             self.mainGroup.sync(file)
         elif extension == 'entitlements':
-            self.add_entitlements(file_path, need_sync=False)
+            self.add_entitlements(file_path, need_sync=True)
         else:
             self.mainGroup.sync(file)
 
@@ -843,6 +844,7 @@ class PBXProject(PBXObject):
         target = self.targets[0]
         for config in target.buildConfigurationList.buildConfigurations:
             if not config_name or config.name == config_name:
+                if field_name not in config.buildSettings: config.buildSettings[field_name] = {}
                 field_value = config.buildSettings[field_name] # type: list[str]
                 field_value.extend(flags)
                 self.__unique_array(field_value)
