@@ -12,6 +12,10 @@ class XcodeProject(object):
         self.__pbx_project = None # type: PBXProject
         self.__pbx_project_path = None # type:str
         self.__library = self.__pbx_data['objects'] = {} # type: dict
+        self.__pbx_library = PBXObjectLibrary(self)
+
+    def append_pbx_object(self, item): # type: (PBXObject)->()
+        self.__pbx_library[item.uuid] = item
 
     @property
     def pbx_project(self): return self.__pbx_project
@@ -140,6 +144,7 @@ class XcodeProject(object):
 
     def load_pbxproj(self, file_path:str):
         print('>>> {}'.format(file_path))
+        self.__pbx_library.clear()
         self.__pbx_project_path = file_path
         self.__buffer = open(file_path, mode='rb')
         self.__pbx_data = self.__read_object()
@@ -162,8 +167,8 @@ class XcodeProject(object):
             return buffer.read()
 
     def import_assets(self, base_path:str, assets:[str], exclude_types:Tuple[str] = ('meta',)):
-        project_path = os.path.join(os.path.dirname(self.__pbx_project_path), os.pardir)
-        project_path = os.path.abspath(project_path)
+        xcode_project_path = os.path.join(os.path.dirname(self.__pbx_project_path), os.pardir)
+        xcode_project_path = os.path.abspath(xcode_project_path)
         script = open(tempfile.mktemp('_import_xcode_assets.sh'), mode='w')
         script.write('#!/usr/bin/env bash\n')
         exclude_pattern = open('exclude_pattern.txt', 'w')
@@ -175,7 +180,7 @@ class XcodeProject(object):
             location = os.path.join(base_path, file_path)
             if os.path.isdir(location) or os.path.isfile(file_path):
                 qulified_assets.append(file_path)
-                script.write('rsync -rvR --exclude-from="{}" "{}" "{}"\n'.format(exclude_pattern.name, base_path, project_path))
+                script.write('rsync -rvR --exclude-from="{}" "{}" "{}"\n'.format(exclude_pattern.name, base_path, xcode_project_path))
         script.write('rm -f {}\n'.format(exclude_pattern.name))
         script.write('rm -f {}\n'.format(script.name))
         script.close()
@@ -188,7 +193,7 @@ class XcodeProject(object):
 
     def __to_pbx_json(self, data:any, note_enabled:bool, indent:str = '    ', padding:str = '', buffer:io.StringIO = None)->io.StringIO:
         if not buffer: buffer = io.StringIO()
-        library = PBXObject.library
+        library = self.__pbx_library
         compact = True if not indent else False
         if isinstance(data, dict):
             if data.get('isa') in ('PBXFileReference', 'PBXBuildFile'):
@@ -223,8 +228,27 @@ class XcodeProject(object):
             if note_enabled and self.__is_pbx_key(data):buffer.write(' {}'.format(library.get(data).note()))
         return buffer
 
+class PBXObjectLibrary(dict):
+    def __init__(self, project:XcodeProject):
+        super().__init__()
+        self.__project = project
+
+    def get(self, name):
+        item = dict.get(self, name)
+        if not item:
+            unknown = PBXObjectUnresolved(self.__project)
+            unknown.load(name)
+            return unknown
+        else:
+            return item
+
+    def __getattribute__(self, item):
+        try:
+            return dict.__getattribute__(self, item)
+        except AttributeError:
+            return self.get(item)
+
 class PBXObject(object):
-    library = {} # type:dict[str, PBXObject]
     def __init__(self, project:XcodeProject):
         self.project = project
         self.data = None # type:dict
@@ -235,20 +259,20 @@ class PBXObject(object):
         self.uuid = uuid
         self.data = self.project.get_pbx_object(uuid)
         self.isa = self.data.get('isa') # type: str
-        PBXObject.library[uuid] = self
+        self.project.append_pbx_object(self)
 
     def note(self)->str:
         return '/* {} */'.format(self.__class__.__name__)
 
     def trim(self, value:str)->str:
-        return re.sub(r'[\'"]', '', value)
+        return re.sub(r'[\'"]', '', value) if value else ''
 
     def fill(self):
         for name, value in self.data.items():
             if hasattr(self, name) and isinstance(value, str): # only for string values
                 if len(value) == 24 and value.isupper(): continue # PBXObject reference
                 self.__setattr__(name, value)
-        PBXObject.library[self.uuid] = self
+        self.project.append_pbx_object(self)
         return self
 
     def generate_uuid(self) -> str:
@@ -267,10 +291,14 @@ class PBXObject(object):
                 uuid = self.generate_uuid()
                 if not self.project.has_pbx_object(uuid):
                     self.project.add_pbx_object(uuid, self.data)
-                    PBXObject.library[uuid] = self
                     self.uuid = uuid
+                    self.project.append_pbx_object(self)
                     break
         return self
+
+class PBXObjectUnresolved(PBXObject):
+    def note(self):
+        return '/* {} */'.format(__class__.__name__)
 
 class PBXBuildFile(PBXObject):
     def __init__(self, project:XcodeProject):
@@ -328,7 +356,8 @@ class PBXGroup(PBXObject):
             self.children.append(item)
 
     def note(self)->str:
-        return '/* {} */'.format(self.trim(self.path if self.path else self.name))
+        name = self.path if self.path else self.name
+        return '/* {} */'.format(self.trim(name)) if name else ''
 
     def sync(self, item:PBXBuildFile):
         components = item.fileRef.path.split('/')
@@ -627,7 +656,7 @@ class PBXProject(PBXObject):
                 if not self.resources_phase: self.resources_phase = phase
             elif phase.isa == PBXSourcesBuildPhase.__name__:
                 if not self.sources_phase: self.sources_phase = phase
-        assert self.frameworks_phase_embed
+        # assert self.frameworks_phase_embed
         assert self.frameworks_phase_build
         assert self.resources_phase
         assert self.sources_phase
