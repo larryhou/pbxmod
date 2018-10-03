@@ -13,6 +13,7 @@ class XcodeProject(object):
         self.__pbx_project_path = None # type:str
         self.__library = self.__pbx_data['objects'] = {} # type: dict
         self.__pbx_library = PBXObjectLibrary(self)
+        self.__ref_library = {} # type: dict[str, PBXFileReference]
 
     def append_pbx_object(self, item): # type: (PBXObject)->()
         self.__pbx_library[item.uuid] = item
@@ -31,6 +32,15 @@ class XcodeProject(object):
 
     def del_pbx_object(self, uuid:str):
         del self.__library[uuid]
+
+    def add_ref_file(self, file): # type: (PBXFileReference)->()
+        self.__ref_library[file.path] = file
+
+    def has_ref_file(self, file_path:str):
+        return file_path in self.__ref_library
+
+    def get_ref_file(self, file_path:str):
+        return self.__ref_library.get(file_path)
 
     def __read(self, size = 0):
         char = self.__buffer.read(size)
@@ -342,8 +352,8 @@ class PBXObject(object):
         return md5.hexdigest()[:24].upper()
 
     def attach(self):
-        if not self.data:
-            self.data = {'isa': self.__class__.__name__}
+        if not self.data: self.data = {}
+        self.data.update({'isa': self.__class__.__name__})
         if self.uuid:
             self.project.add_pbx_object(self.uuid, self.data)
         else:
@@ -480,7 +490,6 @@ class PBXVariantGroup(PBXObject):
             self.children.append(item)
 
 class PBXFileReference(PBXObject):
-    library = {} # type: dict[str, PBXFileReference]
     def __init__(self, project:XcodeProject):
         super(PBXFileReference, self).__init__(project)
         self.lastKnownFileType = None # type:str
@@ -494,15 +503,13 @@ class PBXFileReference(PBXObject):
         self.name = self.data.get('name') # type:str
         self.path = self.data.get('path') # type:str
         self.sourceTree = self.data.get('sourceTree') # type:str
-        PBXFileReference.library[self.path] = self
+        self.project.add_ref_file(self)
 
     def note(self)->str:
         return '/* {} */'.format(self.trim(self.name if self.name else self.path))
 
     @staticmethod
     def create(project, file_path): # type: (XcodeProject, str)->PBXFileReference
-        if file_path in PBXFileReference.library:
-            return PBXFileReference.library.get(file_path)
         file_name = os.path.basename(file_path)
         base_path = os.path.dirname(file_path)
         known_types = {
@@ -525,11 +532,12 @@ class PBXFileReference(PBXObject):
             if os.path.isdir(file_path):
                 folder = PBXFileReference(project).attach()
                 folder.data.update({'lastKnownFileType':'folder', 'sourceTree':'SOURCE_ROOT', 'path':file_path})
+                project.add_ref_file(folder)
                 folder.fill()
                 return folder
             raise NotImplementedError('not supported file {!r}'.format(file_path))
-        ref = PBXFileReference(project).attach()
-        data = ref.data
+        ref = PBXFileReference(project)
+        data = ref.data = {}
         data.update({'name': file_name, 'path': file_path})
         meta = known_types.get(extension)
         data['lastKnownFileType'] = meta[0]
@@ -540,7 +548,11 @@ class PBXFileReference(PBXObject):
             else:
                 data['sourceTree'] = 'SOURCE_ROOT'
         ref.fill()
-        PBXFileReference.library[ref.path] = ref
+        if project.has_ref_file(ref.path):
+            return project.get_ref_file(ref.path)
+        else:
+            ref.attach()
+            project.add_ref_file(ref)
         return ref
 
 class PBXBuildPhase(PBXObject):
