@@ -381,7 +381,8 @@ class PBXBuildFile(PBXObject):
             return '/* {} in {} */'.format(self.trim(ref.name if ref.name else ref.path), self.trim(self.phase.name))
         elif not ref.name.endswith('.h'):
             return '/* EXPECT_PHASE {} */'.format(self.trim(ref.name if ref.name else ref.path))
-        else:return ''
+        else:
+            return '/* {} */'.format(self.trim(ref.name if ref.name else ref.path))
 
     @staticmethod
     def create(project:XcodeProject, file_path:str):
@@ -431,7 +432,6 @@ class PBXGroup(PBXObject):
         parent = self
         while len(components) > 1:
             node = parent.fdir(components[0])
-            parent.append(node)
             del components[0]
             parent = node
         parent.append(item)
@@ -446,7 +446,7 @@ class PBXGroup(PBXObject):
 
     def append(self, item:PBXObject):
         children = self.data.get('children') # type:list[str]
-        if not item.uuid not in children:
+        if item.uuid not in children:
             self.children.append(item)
             children.append(item.uuid)
 
@@ -776,14 +776,16 @@ class PBXProject(PBXObject):
         file_name = os.path.basename(file_path)
         extension = file_name.split('.')[-1]
         file = PBXBuildFile.create(self.project, file_path)
-        self.mainGroup.sync(file)
+
         file_type = file.fileRef.lastKnownFileType
         if extension in ('a', 'tbd', 'framework', 'dylib'):
             file.detach()
-            self.add_framework(file_path, need_sync=False)
+            self.add_framework(file_path, need_sync=True)
         elif extension in ('m', 'mm', 'cpp'):
+            self.mainGroup.sync(file)
             self.sources_phase.append(file)
         elif extension in ('bundle', 'xib', 'png') or file_type.startswith('folder'):
+            self.mainGroup.sync(file)
             self.resources_phase.append(file)
         elif extension == 'entitlements':
             self.add_entitlements(file_path, need_sync=False)
