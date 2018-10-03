@@ -442,14 +442,15 @@ class PBXGroup(PBXObject):
         name = self.path if self.path else self.name
         return '/* {} */'.format(self.trim(name)) if name else ''
 
-    def sync(self, item:PBXBuildFile):
-        components = self.trim(item.fileRef.path).split('/')
+    def sync(self, file): # type: (PBXFileReference)->()
+        components = self.trim(file.path).split('/')
         parent = self
         while len(components) > 1:
             node = parent.fdir(components[0])
             del components[0]
             parent = node
-        parent.append(item.fileRef)
+        if file not in self.children:
+            parent.append(file)
 
     def fdir(self, name:str):
         for item in self.children:
@@ -783,15 +784,17 @@ class PBXProject(PBXObject):
     def add_framework(self, framework_path:str, need_sync = True):
         file = PBXBuildFile.create(self.project, framework_path)
         self.frameworks_phase_build.append(file)
-        if need_sync: self.mainGroup.sync(file)
+        if need_sync:
+            self.mainGroup.sync(file.fileRef)
 
     def add_library(self, library_path:str):
         self.add_framework(library_path)
 
     def add_entitlements(self, file_path, need_sync = True):
-        file = PBXBuildFile.create(self.project, file_path)
         self.add_build_setting('CODE_SIGN_ENTITLEMENTS', '$PROJECT_DIR/{}'.format(file_path))
-        if need_sync: self.mainGroup.sync(file)
+        if need_sync:
+            file = PBXFileReference.create(self.project, file_path)
+            self.mainGroup.sync(file)
 
     def add_asset(self, file_path:str):
         file_name = os.path.basename(file_path)
@@ -803,14 +806,17 @@ class PBXProject(PBXObject):
             self.add_framework(file_path, need_sync=True)
         elif extension in ('m', 'mm', 'cpp'):
             self.sources_phase.append(file)
-            self.mainGroup.sync(file)
+            self.mainGroup.sync(file.fileRef)
         elif extension in ('bundle', 'xib', 'png') or file_type.startswith('folder'):
             self.resources_phase.append(file)
-            self.mainGroup.sync(file)
+            self.mainGroup.sync(file.fileRef)
         elif extension == 'entitlements':
-            self.add_entitlements(file_path, need_sync=True)
+            file.detach()
+            self.add_entitlements(file_path, need_sync=False)
+            self.mainGroup.sync(file.fileRef)
         else:
-            self.mainGroup.sync(file)
+            file.detach()
+            self.mainGroup.sync(file.fileRef)
 
     def __unique_array(self, array:List[any]):
         unique_list = []  # type: list[any]
