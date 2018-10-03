@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-import argparse, sys, os, io, json, enum, hashlib, time, random, re, tempfile
-from typing import List, Dict, Tuple
+import argparse, sys, os, io, json, enum, hashlib, time, random, re, tempfile, shutil
+from typing import List, Dict, Tuple, Pattern
 
 TERMINATOR_CHARSET = b' \t\n,;'
 
@@ -153,6 +153,9 @@ class XcodeProject(object):
         return self.__pbx_project
 
     def save_pbxproj(self):
+        suffix = time.strftime('_%Y-%m-%d_%H%M%S', time.localtime())
+        backup_path = re.sub(r'(\.pbxproj)$', r'{}\g<1>'.format(suffix), self.__pbx_project_path)
+        shutil.copy(self.__pbx_project_path, backup_path)
         with open(self.__pbx_project_path, mode='w') as fp:
             fp.write('// !$*UTF8*$!\n')
             fp.write(self.dump_pbxproj(note_enabled=True, json_format_enabled=False))
@@ -175,18 +178,66 @@ class XcodeProject(object):
         exclude_pattern.write('.*\n')
         for item_type in exclude_types: exclude_pattern.write('*.{}\n'.format(item_type))
         exclude_pattern.close()
-        qulified_assets = [] # type:list[str]
+        qualified_assets = [] # type:list[str]
         for file_path in assets:
             location = os.path.join(base_path, file_path)
             if os.path.isdir(location) or os.path.isfile(file_path):
-                qulified_assets.append(file_path)
+                qualified_assets.append(file_path)
                 script.write('rsync -rvR --exclude-from="{}" "{}" "{}"\n'.format(exclude_pattern.name, base_path, xcode_project_path))
         script.write('rm -f {}\n'.format(exclude_pattern.name))
         script.write('rm -f {}\n'.format(script.name))
         script.close()
         assert os.system('bash -x "{}"'.format(script.name)) == 0
-        for file_path in qulified_assets:
+        for file_path in qualified_assets:
             self.__pbx_project.add_asset(file_path)
+
+    def __find_tree(self, location:str, pattern:Pattern)->List[str]:
+        result = [] # type:list[str]
+        for node_name in os.listdir(location):
+            if pattern and not pattern.search(node_name): continue
+            if node_name.startswith('.'): continue
+            node_path = os.path.join(location, node_name)
+            if os.path.isfile(node_path):
+                result.append(node_path)
+            elif os.path.isdir(node_path):
+                extension = node_name.split('.')[-1]
+                if extension in ('framework', 'bundle', 'xcassets'):
+                    result.append(node_path)
+                else:
+                    result.extend(self.__find_tree(node_path, pattern))
+        return result
+
+    def import_xcmod(self, file_path:str):
+        xcmod = json.load(open(file_path, 'r')) # type: dict[str, any]
+        import_settings = xcmod.get('imports') # type:dict[str, any]
+        base_path = import_settings.get('base_path') # type:str
+        base_path = os.path.expanduser(base_path)
+        if not os.path.exists(base_path):
+            base_path = os.path.join(os.path.dirname(file_path), base_path) # relative to *.xcmod path
+        if not os.path.exists(base_path): raise AssertionError('base_path[={}] not exists'.format(import_settings.get('base_path')))
+        base_path = os.path.abspath(base_path)
+        exclude_list = import_settings.get('excludes') # type:list[str]
+        pattern = re.compile(r'\.({})$'.format('|'.join(exclude_list)))
+        assets = [] # type:list[str]
+        for item_cfg in import_settings.get('items'): # type:dict[str, str]
+            item_path = item_cfg.get('path')
+            if item_cfg.get('type') == 'tree':
+                tree_assets = self.__find_tree(os.path.join(base_path, item_path), pattern)
+                for node_path in tree_assets:
+                    node_path = re.sub(r'^{}/'.format(base_path, '', node_path))
+                    assets.append(node_path)
+            else:
+                assets.append(item_path)
+        self.import_assets(base_path, assets, exclude_types=tuple(exclude_list))
+        # merge flags
+        self.__pbx_project.add_flags(xcmod.get('compiler_flags'), FlagsType.compiler)
+        self.__pbx_project.add_flags(xcmod.get('link_flags'), FlagsType.link)
+        self.save_pbxproj()
+        # merge plist settings
+        self.merge_plist(xcmod.get('plist'))
+
+    def merge_plist(self, data:Dict[str, any]):
+        pass
 
     def __is_pbx_key(self, value:str)->bool:
         return len(value) == 24 and self.has_pbx_object(value)
@@ -622,7 +673,7 @@ class XCBuildConfiguration(PBXObject):
         super(XCBuildConfiguration, self).load(uuid)
 
 class FlagsType(enum.Enum):
-    COMPILE, LINKING, C_PLUS_PLUS = range(3)
+    compiler, link, cplus = range(3)
 
 class PBXProject(PBXObject):
     def __init__(self, project:XcodeProject):
@@ -726,13 +777,12 @@ class PBXProject(PBXObject):
             else:
                 raise AttributeError('not expect {}={!r} here'.format(field_name, type(field_value)))
 
-    def add_flags(self, flags:List[str], flags_type:str = FlagsType.COMPILE.name, config_name:str = None):
-        flags_type = flags_type.upper()
-        if flags_type == FlagsType.COMPILE:
+    def add_flags(self, flags:List[str], flags_type:FlagsType = FlagsType.compiler, config_name:str = None):
+        if flags_type == FlagsType.compiler:
             field_name = 'OTHER_CFLAGS'
-        elif flags_type == FlagsType.LINKING.name:
+        elif flags_type == FlagsType.link:
             field_name = 'OTHER_LDFLAGS'
-        elif flags_type == FlagsType.C_PLUS_PLUS.name:
+        elif flags_type == FlagsType.cplus:
             field_name = 'OTHER_CPLUSPLUSFLAGS'
         else:raise AttributeError('not expect flags with type')
         self.__ensure_array_field(field_name)
@@ -770,8 +820,9 @@ class PBXProject(PBXObject):
 
 if __name__ == '__main__':
     arguments = argparse.ArgumentParser()
-    arguments.add_argument('--file-path', '-f', required=True)
+    arguments.add_argument('--pbxproj-path', '-f', required=True)
+    arguments.add_argument('--xcmode-path', '-x', required=True)
     options = arguments.parse_args(sys.argv[1:])
     xcode_project = XcodeProject()
-    xcode_project.load_pbxproj(file_path=options.file_path)
+    xcode_project.load_pbxproj(file_path=options.pbxproj_path)
     print(xcode_project.dump_pbxproj(True))

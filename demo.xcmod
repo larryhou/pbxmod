@@ -1,0 +1,15 @@
+{
+	"imports":{
+		"base_path":"~/Downloads/TheNextMOBA/",
+		"excludes":["meta"],
+		"items":[
+			{"path":"Assets/Plugins/iOS", "type":"tree"},
+			{"path":"Assets/Plugins/MSDK/iOS/WGPlatformResources.bundle"}
+		]
+	},
+	"compiler_flags":[],
+	"link_flags":[],
+	"plist":{
+		
+	}
+}
