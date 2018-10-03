@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import argparse, sys, os, io, json, enum, hashlib, time, random, shutil, re
+import argparse, sys, os, io, json, enum, hashlib, time, random, re, tempfile
 from typing import List, Dict, Tuple
 
 TERMINATOR_CHARSET = b' \t\n,;'
@@ -10,7 +10,11 @@ class XcodeProject(object):
         self.__buffer = None # type: io.BufferedReader
         self.__pbx_data = {} # type: dict
         self.__pbx_project = None # type: PBXProject
+        self.__pbx_project_path = None # type:str
         self.__library = self.__pbx_data['objects'] = {} # type: dict
+
+    @property
+    def pbx_project(self): return self.__pbx_project
 
     def get_pbx_object(self, uuid:str)->Dict:
         return self.__library.get(uuid)
@@ -136,16 +140,48 @@ class XcodeProject(object):
 
     def load_pbxproj(self, file_path:str):
         print('>>> {}'.format(file_path))
+        self.__pbx_project_path = file_path
         self.__buffer = open(file_path, mode='rb')
         self.__pbx_data = self.__read_object()
         self.__library = self.__pbx_data.get('objects')  # type: dict
         self.__generate_pbx_project()
+        return self.__pbx_project
 
-    def dump_pbxproj(self, note_enabled=True):
-        # print(json.dumps(self.__pbx_data, indent=4))
-        buffer = self.__to_pbx_json(self.__pbx_data, note_enabled=note_enabled)
-        buffer.seek(0)
-        print(buffer.read())
+    def save_pbxproj(self):
+        with open(self.__pbx_project_path, mode='w') as fp:
+            fp.write('// !$*UTF8*$!\n')
+            fp.write(self.dump_pbxproj(note_enabled=True, json_format_enabled=False))
+            fp.write('\n')
+
+    def dump_pbxproj(self, note_enabled=True, json_format_enabled:bool = False):
+        if json_format_enabled:
+            return json.dumps(self.__pbx_data, indent=4)
+        else:
+            buffer = self.__to_pbx_json(self.__pbx_data, note_enabled=note_enabled)
+            buffer.seek(0)
+            return buffer.read()
+
+    def import_assets(self, base_path:str, assets:[str], exclude_types:Tuple[str] = ('meta',)):
+        project_path = os.path.join(os.path.dirname(self.__pbx_project_path), os.pardir)
+        project_path = os.path.abspath(project_path)
+        script = open(tempfile.mktemp('_import_xcode_assets.sh'), mode='w')
+        script.write('#!/usr/bin/env bash\n')
+        exclude_pattern = open('exclude_pattern.txt', 'w')
+        exclude_pattern.write('.*\n')
+        for item_type in exclude_types: exclude_pattern.write('*.{}\n'.format(item_type))
+        exclude_pattern.close()
+        qulified_assets = [] # type:list[str]
+        for file_path in assets:
+            location = os.path.join(base_path, file_path)
+            if os.path.isdir(location) or os.path.isfile(file_path):
+                qulified_assets.append(file_path)
+                script.write('rsync -rvR --exclude-from="{}" "{}" "{}"\n'.format(exclude_pattern.name, base_path, project_path))
+        script.write('rm -f {}\n'.format(exclude_pattern.name))
+        script.write('rm -f {}\n'.format(script.name))
+        script.close()
+        assert os.system('bash -x "{}"'.format(script.name)) == 0
+        for file_path in qulified_assets:
+            self.__pbx_project.add_asset(file_path)
 
     def __is_pbx_key(self, value:str)->bool:
         return len(value) == 24 and self.has_pbx_object(value)
@@ -709,4 +745,4 @@ if __name__ == '__main__':
     options = arguments.parse_args(sys.argv[1:])
     xcode_project = XcodeProject()
     xcode_project.load_pbxproj(file_path=options.file_path)
-    xcode_project.dump_pbxproj(True)
+    print(xcode_project.dump_pbxproj(True))
