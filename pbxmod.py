@@ -183,24 +183,29 @@ class XcodeProject(object):
             return buffer.read()
 
     def import_assets(self, base_path:str, assets:[str], exclude_types:Tuple[str] = ('meta',)):
-        print(assets)
         xcode_project_path = os.path.join(os.path.dirname(self.__pbx_project_path), os.pardir)
         xcode_project_path = os.path.abspath(xcode_project_path)
         script = open(tempfile.mktemp('_import_xcode_assets.sh'), mode='w+')
         script.write('#!/usr/bin/env bash\n')
-        script.write('cd {}\n'.format(base_path))
-        exclude_pattern = open(os.path.abspath('exclude_pattern.txt'), 'w')
-        exclude_pattern.write('.*\n')
-        for item_type in exclude_types: exclude_pattern.write('*.{}\n'.format(item_type))
-        exclude_pattern.close()
+        exclude_rules = open(os.path.abspath('exclude_rules.txt'), 'w')
+        exclude_rules.write('.*\n')
+        include_files = open(os.path.abspath('include_files.txt'), 'w')
+        for item_type in exclude_types: exclude_rules.write('*.{}\n'.format(item_type))
+        exclude_rules.close()
         for file_path in assets:
             location = os.path.join(base_path, file_path)
             if os.path.isdir(location) or os.path.isfile(location):
-                script.write('rsync -rvR --exclude-from="{}" "{}" "{}"\n'.format(exclude_pattern.name, file_path, xcode_project_path))
-        script.write('rm -f {}\n'.format(exclude_pattern.name))
+                include_files.write(file_path)
+                include_files.write('\n')
+        include_files.close()
+        script.write('cat {}\n'.format(include_files.name))
+        script.write('cat {}\n'.format(exclude_rules.name))
+        script.write('rsync -rvR --exclude-from="{}" --files-from="{}" "{}" "{}"\n'.format(exclude_rules.name, include_files.name, base_path, xcode_project_path))
+        script.write('rm -f {}\n'.format(exclude_rules.name))
+        script.write('rm -f {}\n'.format(include_files.name))
         script.write('rm -f {}\n'.format(script.name))
         script.close()
-        # assert os.system('bash -x "{}"'.format(script.name)) == 0
+        assert os.system('bash -x "{}"'.format(script.name)) == 0
         for file_path in assets:
             self.__pbx_project.add_asset(file_path)
 
@@ -234,7 +239,7 @@ class XcodeProject(object):
         # embed frameworks
         embed_frameworks = import_settings.get('embed') # type:list[str]
         for framework_path in embed_frameworks:
-            self.__pbx_project.add_embedded_framework(framework_path)
+            self.__pbx_project.embed_framework(framework_path)
         # merge all kinds of assets
         assets = [] # type:list[str]
         for item_cfg in import_settings.get('items'): # type:dict[str, str]
@@ -247,7 +252,7 @@ class XcodeProject(object):
                     assets.append(node_path)
             else:
                 assets.append(item_path)
-        self.import_assets(base_path, assets, exclude_types=tuple(exclude_list))
+        self.import_assets(base_path, assets + embed_frameworks, exclude_types=tuple(exclude_list))
         # merge flags
         self.__pbx_project.add_flags(xcmod.get('compiler_flags'), FlagsType.compiler)
         self.__pbx_project.add_flags(xcmod.get('link_flags'), FlagsType.link)
@@ -377,13 +382,11 @@ class PBXBuildFile(PBXObject):
     def __init__(self, project:XcodeProject):
         super(PBXBuildFile, self).__init__(project)
         self.fileRef = PBXFileReference(self.project)
-        self.settings = {}
         self.phase = None # type:PBXBuildPhase
 
     def load(self, uuid:str):
         super(PBXBuildFile, self).load(uuid)
         self.fileRef.load(self.data.get('fileRef'))
-        self.settings = self.data.get('settings')
 
     def note(self)->str:
         ref = self.fileRef
@@ -403,10 +406,13 @@ class PBXBuildFile(PBXObject):
         return item
 
     def add_attributes(self, attributes:Tuple[str] = ('CodeSignOnCopy', 'RemoveHeadersOnCopy')):
+        if 'settings' not in self.data:
+            self.data['settings'] = {}
+        settings = self.data.get('settings') # type:dict[str, any]
         field_name = 'ATTRIBUTES'
-        if field_name not in self.settings:
-            self.settings[field_name] = []
-        attr_list = self.settings[field_name] # type: list[str]
+        if field_name not in settings:
+            settings[field_name] = []
+        attr_list = settings[field_name] # type: list[str]
         for item in attributes:
             if item not in attr_list: attr_list.append(item)
 
@@ -429,7 +435,6 @@ class PBXGroup(PBXObject):
         for item_uuid in self.data.get('children'):
             data = self.project.get_pbx_object(item_uuid) # type:dict
             item = globals().get(data.get('isa'))(self.project) # type: PBXObject
-            # print(item, item_uuid)
             item.load(item_uuid)
             self.children.append(item)
 
@@ -438,18 +443,18 @@ class PBXGroup(PBXObject):
         return '/* {} */'.format(self.trim(name)) if name else ''
 
     def sync(self, item:PBXBuildFile):
-        components = item.fileRef.path.split('/')
+        components = self.trim(item.fileRef.path).split('/')
         parent = self
         while len(components) > 1:
             node = parent.fdir(components[0])
             del components[0]
             parent = node
-        parent.append(item)
+        parent.append(item.fileRef)
 
     def fdir(self, name:str):
         for item in self.children:
             if isinstance(item, PBXGroup):
-                if item.path == name: return item
+                if item.name == name: return item
         item = PBXGroup.create(self.project, name)
         self.append(item)
         return item
@@ -463,7 +468,7 @@ class PBXGroup(PBXObject):
     @staticmethod
     def create(project:XcodeProject, path:str, source_tree:str = '\"<group>\"'):
         group = PBXGroup(project).attach()
-        group.data.update({'path':path, 'sourceTree':source_tree, 'children':[]})
+        group.data.update({'name':path, 'sourceTree':source_tree, 'children':[]})
         group.fill()
         return group
 
@@ -538,6 +543,9 @@ class PBXFileReference(PBXObject):
             raise NotImplementedError('not supported file {!r}'.format(file_path))
         ref = PBXFileReference(project)
         data = ref.data = {}
+        if '+' in file_name:
+            file_name = '"{}"'.format(file_name)
+            file_path = '"{}"'.format(file_path)
         data.update({'name': file_name, 'path': file_path})
         meta = known_types.get(extension)
         data['lastKnownFileType'] = meta[0]
@@ -589,12 +597,13 @@ class PBXSourcesBuildPhase(PBXBuildPhase):
 
     def append(self, item:PBXBuildFile):
         files = self.data.get('files') # type:list[str]
-        if item.uuid not in files:
-            self.files.append(item)
-            item.phase = self
-            files.append(item.uuid)
-        else:
-            item.detach()
+        for f in self.files:
+            if f.fileRef == item.fileRef:
+                item.detach()
+                return
+        self.files.append(item)
+        files.append(item.uuid)
+        item.phase = self
 
 class PBXResourcesBuildPhase(PBXSourcesBuildPhase):
     def __init__(self, project:XcodeProject):
@@ -765,8 +774,7 @@ class PBXProject(PBXObject):
                 else:
                     config.buildSettings[field_name] = field_value
 
-    def add_embedded_framework(self, framework_path:str):
-        self.add_framework(framework_path)
+    def embed_framework(self, framework_path:str):
         file = PBXBuildFile.create(self.project, framework_path)
         file.add_attributes()
         self.frameworks_phase_embed.append(file)
@@ -788,19 +796,20 @@ class PBXProject(PBXObject):
         file_name = os.path.basename(file_path)
         extension = file_name.split('.')[-1]
         file = PBXBuildFile.create(self.project, file_path)
-
         file_type = file.fileRef.lastKnownFileType
         if extension in ('a', 'tbd', 'framework', 'dylib'):
             file.detach()
             self.add_framework(file_path, need_sync=True)
         elif extension in ('m', 'mm', 'cpp'):
-            self.mainGroup.sync(file)
             self.sources_phase.append(file)
-        elif extension in ('bundle', 'xib', 'png') or file_type.startswith('folder'):
             self.mainGroup.sync(file)
+        elif extension in ('bundle', 'xib', 'png') or file_type.startswith('folder'):
             self.resources_phase.append(file)
+            self.mainGroup.sync(file)
         elif extension == 'entitlements':
             self.add_entitlements(file_path, need_sync=False)
+        else:
+            self.mainGroup.sync(file)
 
     def __unique_array(self, array:List[any]):
         unique_list = []  # type: list[any]
