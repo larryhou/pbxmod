@@ -597,11 +597,11 @@ class PBXSourcesBuildPhase(PBXBuildPhase):
             self.files.append(file_item)
 
     def append(self, item:PBXBuildFile):
-        files = self.data.get('files') # type:list[str]
         for f in self.files:
-            if f.fileRef == item.fileRef:
+            if f.fileRef.uuid == item.fileRef.uuid:
                 item.detach()
                 return
+        files = self.data.get('files') # type:list[str]
         self.files.append(item)
         files.append(item.uuid)
         item.phase = self
