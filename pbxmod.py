@@ -7,15 +7,15 @@ TERMINATOR_CHARSET = b' \t\n,;'
 
 class XcodeProject(object):
     def __init__(self):
-        self.__buffer = None # type: io.BufferedReader
-        self.__pbx_data = {} # type: dict
-        self.__pbx_project = None # type: PBXProject
-        self.__pbx_project_path = None # type:str
-        self.__library = self.__pbx_data['objects'] = {} # type: dict
+        self.__buffer: io.BufferedReader = None
+        self.__pbx_data: dict[str,any] = {}
+        self.__pbx_project: PBXProject = None
+        self.__pbx_project_path: str = None
+        self.__library = self.__pbx_data['objects'] = {} # type: dict[str:any]
         self.__pbx_library = PBXObjectLibrary(self)
-        self.__ref_library = {} # type: dict[str, PBXFileReference]
+        self.__ref_library: dict[str, PBXFileReference] = {}
 
-    def append_pbx_object(self, item): # type: (PBXObject)->()
+    def append_pbx_object(self, item): # type: (PBXObject)->None
         self.__pbx_library[item.uuid] = item
 
     @property
@@ -210,7 +210,7 @@ class XcodeProject(object):
             self.__pbx_project.add_asset(file_path)
 
     def __find_tree(self, location:str, pattern:Pattern)->List[str]:
-        result = [] # type:list[str]
+        result: list[str] = []
         for node_name in os.listdir(location):
             if pattern and pattern.search(node_name): continue
             if node_name.startswith('.'): continue
@@ -226,22 +226,22 @@ class XcodeProject(object):
         return result
 
     def import_xcmod(self, file_path:str):
-        xcmod = json.load(open(file_path, 'r')) # type: dict[str, any]
-        import_settings = xcmod.get('imports') # type:dict[str, any]
-        base_path = import_settings.get('base_path') # type:str
+        xcmod: dict[str, any] = json.load(open(file_path, 'r'))
+        import_settings: dict[str, any] = xcmod.get('imports')
+        base_path: str = import_settings.get('base_path')
         base_path = os.path.expanduser(base_path)
         if not os.path.exists(base_path):
             base_path = os.path.join(os.path.dirname(file_path), base_path) # relative to *.xcmod path
         if not os.path.exists(base_path): raise AssertionError('base_path[={}] not exists'.format(import_settings.get('base_path')))
         base_path = os.path.abspath(base_path)
-        exclude_list = import_settings.get('exclude') # type:list[str]
+        exclude_list: list[str] = import_settings.get('exclude')
         pattern = re.compile(r'\.({})$'.format('|'.join(exclude_list)))
         # embed frameworks
-        embed_frameworks = import_settings.get('embed') # type:list[str]
+        embed_frameworks: list[str] = import_settings.get('embed')
         for framework_path in embed_frameworks:
             self.__pbx_project.embed_framework(framework_path)
         # merge all kinds of assets
-        assets = [] # type:list[str]
+        assets: list[str] = []
         for item_cfg in import_settings.get('items'): # type:dict[str, str]
             item_path = item_cfg.get('path')
             if item_path in embed_frameworks: continue # same framework is imported only once
@@ -254,7 +254,7 @@ class XcodeProject(object):
                 assets.append(item_path)
         self.import_assets(base_path, assets + embed_frameworks, exclude_types=tuple(exclude_list))
         # merge build settings
-        build_settings = xcmod.get('settings') # type: dict[str, str]
+        build_settings: dict[str, str] = xcmod.get('settings')
         for name, value in build_settings.items(): # type: str, str
             self.__pbx_project.add_build_setting(name, value)
         # merge flags
@@ -330,9 +330,9 @@ class PBXObjectLibrary(dict):
 class PBXObject(object):
     def __init__(self, project:XcodeProject):
         self.project = project
-        self.data = None # type:dict
-        self.uuid = None # type:str
-        self.isa = self.__class__.__name__ # type:str
+        self.data: dict[str,any] = None
+        self.uuid: str = None
+        self.isa: str = self.__class__.__name__
 
     def load(self, uuid:str):
         self.uuid = uuid
@@ -386,7 +386,7 @@ class PBXBuildFile(PBXObject):
     def __init__(self, project:XcodeProject):
         super(PBXBuildFile, self).__init__(project)
         self.fileRef = PBXFileReference(self.project)
-        self.phase = None # type:PBXBuildPhase
+        self.phase: PBXBuildPhase = None
 
     def load(self, uuid:str):
         super(PBXBuildFile, self).load(uuid)
@@ -589,7 +589,7 @@ class PBXBuildPhase(PBXObject):
 class PBXSourcesBuildPhase(PBXBuildPhase):
     def __init__(self, project:XcodeProject):
         super(PBXSourcesBuildPhase, self).__init__(project)
-        self.files = []  # type: list[PBXBuildFile]
+        self.files: list[PBXBuildFile] = []
 
     def load(self, uuid:str):
         super(PBXSourcesBuildPhase, self).load(uuid)
@@ -621,13 +621,14 @@ class PBXShellScriptBuildPhase(PBXBuildPhase):
     def __init__(self, project:XcodeProject):
         super(PBXShellScriptBuildPhase, self).__init__(project)
         self.shellPath = '/usr/bin/sh'
-        self.shellScript = None # type: str
+        self.shellScript: str = None
         self.name = '\"Run Script\"'
 
     def load(self, uuid:str):
         super(PBXShellScriptBuildPhase, self).load(uuid)
-        self.shellPath = self.data.get('shellPath') # type: str
-        self.shellScript = self.data.get('shellScript')  # type: str
+        self.shellPath: str = self.data.get('shellPath')
+        self.shellScript: str = self.data.get('shellScript')
+
 
 class PBXCopyFilesBuildPhase(PBXSourcesBuildPhase):
     def __init__(self, project:XcodeProject):
@@ -659,9 +660,9 @@ class PBXNativeTarget(PBXObject):
     def __init__(self, project:XcodeProject):
         super(PBXNativeTarget, self).__init__(project)
         self.buildConfigurationList = XCConfigurationList(self.project)
-        self.buildPhases = [] # type: list[PBXBuildPhase]
-        self.productName = None # type: str
-        self.name = None # type: str
+        self.buildPhases: list[PBXBuildPhase] = []
+        self.productName: str = None
+        self.name:str = None
 
     def note(self)->str:
         return '/* {} */'.format(self.trim(self.name))
@@ -688,8 +689,8 @@ class PBXNativeTarget(PBXObject):
 class XCConfigurationList(PBXObject):
     def __init__(self, project:XcodeProject):
         super(XCConfigurationList, self).__init__(project)
-        self.buildConfigurations = [] # type: list[XCBuildConfiguration]
-        self.target = None # type:PBXNativeTarget
+        self.buildConfigurations: list[XCBuildConfiguration] = []
+        self.target: PBXNativeTarget = None
 
     @property
     def defaultConfigurationName(self)->str:
@@ -731,14 +732,14 @@ class FlagsType(enum.Enum):
 class PBXProject(PBXObject):
     def __init__(self, project:XcodeProject):
         super(PBXProject, self).__init__(project)
-        self.targets = []  # type: list[PBXNativeTarget]
+        self.targets: list[PBXNativeTarget] = []
         self.buildConfigurationList = XCConfigurationList(self.project)
         self.mainGroup = PBXGroup(self.project)
 
-        self.frameworks_phase_build = None # type: PBXFrameworksBuildPhase
-        self.frameworks_phase_embed = None # type: PBXCopyFilesBuildPhase
-        self.resources_phase = None # type:PBXResourcesBuildPhase
-        self.sources_phase = None # type:PBXSourcesBuildPhase
+        self.frameworks_phase_build: PBXFrameworksBuildPhase = None
+        self.frameworks_phase_embed: PBXCopyFilesBuildPhase = None
+        self.resources_phase: PBXResourcesBuildPhase = None
+        self.sources_phase: PBXSourcesBuildPhase = None
 
     def load(self, uuid:str):
         super(PBXProject, self).load(uuid)
