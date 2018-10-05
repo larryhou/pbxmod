@@ -231,6 +231,7 @@ class XcodeProject(object):
     def import_xcmod(self, file_path:str):
         xcmod: dict[str, any] = json.load(open(file_path, 'r'))
         import_settings: dict[str, any] = xcmod.get('imports')
+        if not import_settings: import_settings = {}
         base_path: str = import_settings.get('base_path')
         base_path = os.path.expanduser(base_path)
         if not os.path.exists(base_path):
@@ -238,11 +239,14 @@ class XcodeProject(object):
         if not os.path.exists(base_path): raise AssertionError('base_path[={}] not exists'.format(import_settings.get('base_path')))
         base_path = os.path.abspath(base_path)
         exclude_list: list[str] = import_settings.get('exclude')
-        pattern = re.compile(r'\.({})$'.format('|'.join(exclude_list)))
+        pattern:Pattern = re.compile(r'\.({})$'.format('|'.join(exclude_list))) if exclude_list else None
         # embed frameworks
         embed_frameworks: list[str] = import_settings.get('embed')
-        for framework_path in embed_frameworks:
-            self.__pbx_project.embed_framework(framework_path)
+        if embed_frameworks:
+            for framework_path in embed_frameworks:
+                self.__pbx_project.embed_framework(framework_path)
+        else:
+            embed_frameworks = []
         # merge all kinds of assets
         assets: list[str] = []
         for item_cfg in import_settings.get('items'): # type:dict[str, str]
@@ -258,8 +262,9 @@ class XcodeProject(object):
         self.import_assets(base_path, assets + embed_frameworks, exclude_types=tuple(exclude_list))
         # merge build settings
         build_settings: dict[str, str] = xcmod.get('settings')
-        for name, value in build_settings.items(): # type: str, str
-            self.__pbx_project.add_build_setting(name, value)
+        if build_settings:
+            for name, value in build_settings.items(): # type: str, str
+                self.__pbx_project.add_build_setting(name, value)
         # merge flags
         self.__pbx_project.add_flags(xcmod.get('compiler_flags'), FlagsType.compiler)
         self.__pbx_project.add_flags(xcmod.get('link_flags'), FlagsType.link)
@@ -268,6 +273,7 @@ class XcodeProject(object):
         self.merge_plist(xcmod.get('plist'))
 
     def merge_plist(self, data:Dict[str, any]):
+        if not data: return
         plist_path = self.__pbx_project.get_info_plist()
         from plist import plistObject
         plist = plistObject()
@@ -852,6 +858,7 @@ class PBXProject(PBXObject):
                 raise AttributeError('not expect {}={!r} here'.format(field_name, type(field_value)))
 
     def add_flags(self, flags:List[str], flags_type:FlagsType = FlagsType.compiler, config_name:str = None):
+        if not flags: return
         if flags_type == FlagsType.compiler:
             field_name = 'OTHER_CFLAGS'
         elif flags_type == FlagsType.link:
