@@ -213,6 +213,7 @@ class plistObject(object):
             if char == b'<':
                 n = self.__read()
                 if n == b'?':
+                    assert self.__read(3) == b'xml'
                     result = self.__read_attributes()
                     assert self.__read() == b'>'
                     break
@@ -313,6 +314,8 @@ class plistObject(object):
                 elif type(value) == type(dst.get(name)):
                     if isinstance(value, list) or isinstance(value, dict):
                         self.__merge_data(value, dst.get(name))
+                    else:
+                        dst[name] = value
                 else:
                     print('TYPE_NOT_MATCHING {!r} <=> {!r}'.format(value, dst.get(name)))
         else:
