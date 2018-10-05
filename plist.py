@@ -65,6 +65,7 @@ class plistObject(object):
                     elif t == b'-':
                         self.read_comment()
                     else:
+                        self.buffer.seek(-1, os.SEEK_CUR)
                         assert self.read(7) == b'DOCTYPE'
                         self.read_doctype()
                 elif n == b'/':
@@ -219,6 +220,8 @@ class plistObject(object):
                 n = self.read()
                 if n == b'?':
                     result = self.read_attributes()
+                    assert self.read() == b'>'
+                    break
                 elif n == b'!':
                     assert self.read(2) == b'--'
                     self.read_comment()
