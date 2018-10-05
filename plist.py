@@ -14,7 +14,6 @@ class plistObject(object):
     def read(self, size:int = 1)->bytes:
         char:bytes = self.buffer.read(size)
         if not char: raise EOFError('expect more data')
-        # print(char)
         return char
 
     def read_tag(self)->(str, Optional[Dict[str, str]]):
@@ -32,11 +31,9 @@ class plistObject(object):
         assert tag
         while True:
             if self.read() == b'>': break
-        # print('read_tag', tag)
         return tag, attrs
 
     def read_simple_text(self):
-        # print('read_simple_text')
         value = b''
         while True:
             char = self.read()
@@ -51,7 +48,6 @@ class plistObject(object):
             if self.read() == b'>': break
 
     def read_object(self):
-        # print('read_object')
         while True:
             char = self.read()
             if char in SPACE_CHATSET: continue
@@ -73,7 +69,6 @@ class plistObject(object):
                 else:
                     self.buffer.seek(-1, os.SEEK_CUR)
                     tag, attrs = self.read_tag()
-                    # print('>>>', tag, attrs)
                     self.buffer.seek(-2, os.SEEK_CUR)
                     empty = self.read(2) == b'/>'
                     if   tag == b'array':
@@ -90,9 +85,7 @@ class plistObject(object):
                         value = None
                         if not empty:
                             value = self.read_simple_text().decode('utf-8')
-                            # print(tag, value, self.buffer.tell())
                             closing_tag,_ = self.read_tag()
-                            # print('closing_tag', closing_tag)
                             assert tag == closing_tag # read closing tag
                         if tag == b'integer':
                             return int(value.strip()) if not empty else 0
@@ -103,7 +96,6 @@ class plistObject(object):
             else: raise SyntaxError('expect "<" but found {!r} here'.format(char))
 
     def read_array(self):
-        # print('read_array')
         result: list[any] = []
         while True:
             char = self.read()
@@ -124,11 +116,9 @@ class plistObject(object):
                     else:
                         self.buffer.seek(offset-1)
                         result.append(self.read_object())
-        # print(result)
         return result
 
     def read_dictionary(self):
-        # print('read_dictionary')
         result:dict[str,any] = {}
         while True:
             char = self.read()
@@ -144,14 +134,12 @@ class plistObject(object):
                     if tag == b'key':
                         name = self.read_simple_text()
                         assert self.read_tag()[0] == b'key'
-                        # print('dict_entry', tag, name)
                         result[name.decode('utf-8')] = self.read_object()
                     else:
                         self.buffer.seek(-7, os.SEEK_CUR)
                         assert tag == b'dict' and self.read(7) == b'</dict>'
                         break
             else: continue
-        # print(result)
         return result
 
     def read_comment(self):
@@ -180,7 +168,6 @@ class plistObject(object):
         return cdata
 
     def read_string(self)->bytes:
-        # print('read_string')
         result = b''
         quote, p = b'', b''
         while True:
@@ -193,7 +180,6 @@ class plistObject(object):
                 break
             result += char
             p = char
-        # print(result)
         return result
 
     def read_attributes(self)->Dict[str,str]:
@@ -236,6 +222,9 @@ class plistObject(object):
         print(self.properties)
         self.data = self.read_object()
         print(json.dumps(self.data, indent=4, ensure_ascii=False))
+
+    def update(self, data:Dict[str,any]):
+        pass
 
 if __name__ == '__main__':
     arguments = argparse.ArgumentParser()
