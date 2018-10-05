@@ -268,7 +268,7 @@ class XcodeProject(object):
         self.merge_plist(xcmod.get('plist'))
 
     def merge_plist(self, data:Dict[str, any]):
-        plist_path = self.__pbx_project.get_plist_file()
+        plist_path = self.__pbx_project.get_info_plist()
         from plist import plistObject
         plist = plistObject()
         plist.load(file_path=os.path.join(self.__xcode_project_path, plist_path))
@@ -893,7 +893,7 @@ class PBXProject(PBXObject):
     def set_package_name(self, name:str):
         self.add_build_setting('PRODUCT_NAME', name)
 
-    def get_plist_file(self)->str:
+    def get_info_plist(self)->str:
         config = self.targets[0].buildConfigurationList.buildConfigurations[0]
         return config.buildSettings.get('INFOPLIST_FILE')
 
