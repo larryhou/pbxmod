@@ -187,6 +187,7 @@ class XcodeProject(object):
             return buffer.read()
 
     def import_assets(self, base_path:str, assets:[str], exclude_types:Tuple[str] = ('meta',)):
+        if not assets: return
         xcproj_path = self.__xcode_project_path
         script = open(tempfile.mktemp('_import_xcode_assets.sh'), mode='w+')
         script.write('#!/usr/bin/env bash\n')
