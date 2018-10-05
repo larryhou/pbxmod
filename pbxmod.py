@@ -14,6 +14,7 @@ class XcodeProject(object):
         self.__library = self.__pbx_data['objects'] = {} # type: dict[str:any]
         self.__pbx_library = PBXObjectLibrary(self)
         self.__ref_library: dict[str, PBXFileReference] = {}
+        self.__xcode_project_path:str = None
 
     def append_pbx_object(self, item): # type: (PBXObject)->None
         self.__pbx_library[item.uuid] = item
@@ -159,6 +160,9 @@ class XcodeProject(object):
         print('>>> {}'.format(file_path))
         self.__pbx_library.clear()
         self.__pbx_project_path = file_path
+        xcproj_path = os.path.join(os.path.dirname(self.__pbx_project_path), os.pardir)
+        xcproj_path = os.path.abspath(xcproj_path)
+        self.__xcode_project_path = xcproj_path
         self.__buffer = open(file_path, mode='rb')
         self.__pbx_data = self.__read_object()
         self.__library = self.__pbx_data.get('objects')  # type: dict
@@ -183,8 +187,7 @@ class XcodeProject(object):
             return buffer.read()
 
     def import_assets(self, base_path:str, assets:[str], exclude_types:Tuple[str] = ('meta',)):
-        xcode_project_path = os.path.join(os.path.dirname(self.__pbx_project_path), os.pardir)
-        xcode_project_path = os.path.abspath(xcode_project_path)
+        xcproj_path = self.__xcode_project_path
         script = open(tempfile.mktemp('_import_xcode_assets.sh'), mode='w+')
         script.write('#!/usr/bin/env bash\n')
         exclude_rules = open(os.path.abspath('exclude_rules.txt'), 'w')
@@ -200,7 +203,7 @@ class XcodeProject(object):
         include_files.close()
         script.write('cat {}\n'.format(include_files.name))
         script.write('cat {}\n'.format(exclude_rules.name))
-        script.write('rsync -rvR --exclude-from="{}" --files-from="{}" "{}" "{}"\n'.format(exclude_rules.name, include_files.name, base_path, xcode_project_path))
+        script.write('rsync -rvR --exclude-from="{}" --files-from="{}" "{}" "{}"\n'.format(exclude_rules.name, include_files.name, base_path, xcproj_path))
         script.write('rm -f {}\n'.format(exclude_rules.name))
         script.write('rm -f {}\n'.format(include_files.name))
         script.write('rm -f {}\n'.format(script.name))
@@ -265,7 +268,12 @@ class XcodeProject(object):
         self.merge_plist(xcmod.get('plist'))
 
     def merge_plist(self, data:Dict[str, any]):
-        pass
+        plist_path = self.__pbx_project.get_plist_file()
+        from plist import plistObject
+        plist = plistObject()
+        plist.load(file_path=os.path.join(self.__xcode_project_path, plist_path))
+        plist.merge(data)
+        plist.save()
 
     def __is_pbx_key(self, value:str)->bool:
         return len(value) == 24 and self.has_pbx_object(value)
@@ -884,6 +892,10 @@ class PBXProject(PBXObject):
 
     def set_package_name(self, name:str):
         self.add_build_setting('PRODUCT_NAME', name)
+
+    def get_plist_file(self)->str:
+        config = self.targets[0].buildConfigurationList.buildConfigurations[0]
+        return config.buildSettings.get('INFOPLIST_FILE')
 
 if __name__ == '__main__':
     arguments = argparse.ArgumentParser()

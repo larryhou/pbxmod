@@ -229,7 +229,6 @@ class plistObject(object):
         self.__properties = self.__read_properties()
         self.__data = self.__read_object()
         self.__buffer.close()
-        print(json.dumps(self.__data, indent=4, ensure_ascii=False))
 
     def __dump_data(self, data, buffer:io.StringIO, indent:str='    ', padding:str=''):
         if isinstance(data, dict):
@@ -271,6 +270,9 @@ class plistObject(object):
                     buffer.write('{}<string/>\n'.format(padding))
                     return
                 buffer.write('{}<string>{}</string>\n'.format(padding, data))
+
+    def json(self)->str:
+        return json.dumps(self.__data.get('data'), indent=4, ensure_ascii=False) if self.__data else ''
 
     def dump(self)->str:
         buffer = io.StringIO()
@@ -330,4 +332,11 @@ if __name__ == '__main__':
     options = arguments.parse_args(sys.argv[1:])
     plist = plistObject()
     plist.load(file_path=options.plist_file)
+    print(plist.json())
+    print(plist.dump())
+    json_string = plist.json()
+    conf = json.loads(json_string) # type: dict[str, any]
+    print(conf)
+    conf['author'] = 'larryhou'
+    plist.merge(conf)
     print(plist.dump())
