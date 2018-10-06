@@ -278,7 +278,7 @@ class plistObject(object):
                     base64.b64decode(encoded_data)
                 except ValueError:
                     encoded_data = base64.b64encode(encoded_data)
-                buffer.write('{}<data>{}</data>\n'.format(padding, self.__wrap_text(encoded_data)))
+                buffer.write('{}<data>{}</data>\n'.format(padding, encoded_data))
             elif data_type == '{date}':
                 buffer.write('{}<date>{}</date>\n'.format(padding, data[6:]))
             else:
