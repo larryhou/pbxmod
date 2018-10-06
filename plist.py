@@ -39,8 +39,17 @@ class plistObject(object):
         while True:
             char = self.__read()
             if char == b'<':
-                self.__buffer.seek(-1, os.SEEK_CUR)
-                break
+                n = self.__read()
+                if n == b'!':
+                    t = self.__read(7)
+                    if t == b'[CDATA[':
+                        value += self.__read_cdata()
+                        continue
+                    else:
+                        self.__buffer.seek(-8, os.SEEK_CUR)
+                else:
+                    self.__buffer.seek(-2, os.SEEK_CUR)
+                    break
             value += char
         return value
 
@@ -162,7 +171,7 @@ class plistObject(object):
         return comment
 
     def __read_cdata(self):
-        print('read_cdata')
+        # print('read_cdata')
         cdata = b''
         while True:
             char = self.__read()
@@ -173,6 +182,7 @@ class plistObject(object):
                 else:
                     self.__buffer.seek(-2, os.SEEK_CUR)
             cdata += char
+        # print(cdata)
         return cdata
 
     def __read_string(self)->bytes:
@@ -231,6 +241,11 @@ class plistObject(object):
         self.__data = self.__read_object()
         self.__buffer.close()
 
+    def __wrap_text(self, data:str):
+        if data.find('\n') >= 0:
+            return '<![CDATA[{}]]>'.format(data)
+        else:return data
+
     def __dump_data(self, data, buffer:io.StringIO, indent:str='    ', padding:str=''):
         if isinstance(data, dict):
             if len(data) == 0:
@@ -263,14 +278,14 @@ class plistObject(object):
                     base64.b64decode(encoded_data)
                 except ValueError:
                     encoded_data = base64.b64encode(encoded_data)
-                buffer.write('{}<data>{}</data>\n'.format(padding, encoded_data))
+                buffer.write('{}<data>{}</data>\n'.format(padding, self.__wrap_text(encoded_data)))
             elif data_type == '{date}':
                 buffer.write('{}<date>{}</date>\n'.format(padding, data[6:]))
             else:
                 if not data:
                     buffer.write('{}<string/>\n'.format(padding))
                     return
-                buffer.write('{}<string>{}</string>\n'.format(padding, data))
+                buffer.write('{}<string>{}</string>\n'.format(padding, self.__wrap_text(data)))
 
     def json(self)->str:
         return json.dumps(self.__data.get('data'), indent=4, ensure_ascii=False) if self.__data else ''
