@@ -226,5 +226,5 @@ Xcode project tools for manipulating `*.pbxproj`|`*.plist`|`*.m[m]?` files, and 
 ```
 
 ```bash
-./pbxmod.py -f ~/Downloads/demo/demo.xcodeproj/project.pbxproj -x demo.xcmod 
+./xcmod.py -f ~/Downloads/demo/demo.xcodeproj/project.pbxproj -x demo.xcmod 
 ```
