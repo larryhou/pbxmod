@@ -37,6 +37,10 @@ class objcClass(object):
         if tail:
             self.__buffer.write(tail)
 
+    def __read_tail(self, size:int = 100):
+        self.__buffer.seek(self.length - size)
+        return self.__buffer.read()
+
     def __replace_range(self, offset:int, length:int, replacement:str = None):
         buffer_length = self.length
         assert offset + length <= buffer_length
@@ -44,12 +48,15 @@ class objcClass(object):
         tail = self.__buffer.read()
         replacement_length = len(replacement) if replacement else 0
         if replacement_length < length:
+            # print('truncate_s {} {!r}'.format(self.length, self.__read_tail()))
             self.__buffer.truncate(buffer_length - (length - replacement_length))
+            # print('truncate_e {} {!r}'.format(self.length, self.__read_tail()))
         self.__buffer.seek(offset)
         if replacement:
             self.__buffer.write(replacement)
         if tail:
             self.__buffer.write(tail)
+        # print('truncate_= {} {!r}'.format(self.length, self.__read_tail()))
 
     def import_header(self, header:str):
         if header.find('<') < 0 and not header.startswith('"'):
@@ -81,7 +88,7 @@ class objcClass(object):
             if not line: return -1, -1
             trim_line = line.strip()
             if trim_line and trim_code.find(trim_line) >= 0 or trim_line.find(trim_code) >= 0:
-                print('>>>', line)
+                # print('>>>', line)
                 length = self.__buffer.tell() - offset
                 self.__buffer.seek(offset)
                 sqr_num, cur_num = 0, 0
@@ -146,9 +153,9 @@ class objcClass(object):
                         program_line += char
                         if cur_num == 1:
                             trim_line = program_line.strip()
-                            print('+++', trim_line)
+                            # print('+++', trim_line)
                             if trim_line and (trim_line.find(trim_refer) >= 0 or trim_refer.find(trim_line) >= 0):
-                                print('... {!r} {!r}'.format(program_line, trim_line), len(trim_line), trim_line.find(trim_refer), trim_refer.find(trim_line), bool(trim_line))
+                                # print('... {!r} {!r}'.format(program_line, trim_line), len(trim_line), trim_line.find(trim_refer), trim_refer.find(trim_line), bool(trim_line))
                                 if below_refer:
                                     self.__insert(string='\n    {}'.format(code), offset=self.__buffer.tell())
                                 else:
@@ -277,11 +284,11 @@ if __name__ == '__main__':
     print(objc.dump_match_code('NSAssert(![self respondsToSelector: @selector(createUnityViewImpl)]'))
     print(objc.dump_match_code('AppController_SendNotificationWithArg(kUnityDidRegiste'))
     print(objc.dump_match_code('if (UnityIsPaused() && _wasPausedExternal == false'))
-    objc.insert_within_method('-(NSUInteger)application:supportedInterfaceOrientationsForWindow:', code='::printf("hello larryhou");')
+    objc.insert_within_method('-(NSUInteger)application:supportedInterfaceOrientationsForWindow:', code='::printf("insert_within_method");')
     objc.insert_within_method('-(BOOL)application:openURL:sourceApplication:annotation:',
-                              code='::printf("hello larryhou");', refer='ADD_ITEM(sourceApplication);', below_refer=True)
+                              code='::printf("insert_within_method");', refer='ADD_ITEM(sourceApplication);', below_refer=True)
     objc.insert_above('[[ApolloApplication sharedInstance] application:application didFail', code='::printf("insert_above");')
     objc.insert_below('[[ApolloApplication sharedInstance] application:application didFail',
                       code='::printf("insert_below");')
-    objc.replace('[MSDKXG WGFailedRegisteredAPNS];', '    //TODO [MSDKXG WGFailedRegisteredAPNS];')
+    objc.replace('[MSDKXG WGFailedRegisteredAPNS];', '    //TODO ;')
     print(objc.dump())
