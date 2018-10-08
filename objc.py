@@ -10,46 +10,46 @@ class objcClass(object):
         self.__file_path:str = file_path
         assert os.path.isfile(file_path)
         with open(file_path, mode='r+') as fp:
-            self.buffer:io.StringIO = io.StringIO(fp.read())
+            self.__buffer:io.StringIO = io.StringIO(fp.read())
         # self.dump_import_headers()
         # self.dump_include_files()
         self.dump_method_names()
 
     def __read(self, size:int = 1):
-        char = self.buffer.read(size)
+        char = self.__buffer.read(size)
         if not char: raise EOFError('expect more data')
         return char
 
     @property
     def length(self):
-        offset = self.buffer.tell()
-        self.buffer.seek(0, os.SEEK_END)
-        length = self.buffer.tell()
-        self.buffer.seek(offset)
+        offset = self.__buffer.tell()
+        self.__buffer.seek(0, os.SEEK_END)
+        length = self.__buffer.tell()
+        self.__buffer.seek(offset)
         return length
 
     def __insert(self, string:str, offset:int):
         if not string: return
-        self.buffer.seek(offset)
-        tail = self.buffer.read()
-        self.buffer.seek(offset)
-        self.buffer.write(string)
+        self.__buffer.seek(offset)
+        tail = self.__buffer.read()
+        self.__buffer.seek(offset)
+        self.__buffer.write(string)
         if tail:
-            self.buffer.write(tail)
+            self.__buffer.write(tail)
 
     def __replace_range(self, offset:int, length:int, replacement:str = None):
         buffer_length = self.length
         assert offset + length <= buffer_length
-        self.buffer.seek(offset + length)
-        tail = self.buffer.read()
+        self.__buffer.seek(offset + length)
+        tail = self.__buffer.read()
         replacement_length = len(replacement) if replacement else 0
         if replacement_length < length:
-            self.buffer.truncate(buffer_length - (length - replacement_length))
-        self.buffer.seek(offset)
+            self.__buffer.truncate(buffer_length - (length - replacement_length))
+        self.__buffer.seek(offset)
         if replacement:
-            self.buffer.write(replacement)
+            self.__buffer.write(replacement)
         if tail:
-            self.buffer.write(tail)
+            self.__buffer.write(tail)
 
     def import_header(self, header:str):
         if header.find('<') < 0 and not header.startswith('"'):
@@ -73,17 +73,17 @@ class objcClass(object):
 
     def __search(self, code:str, block_enabled:bool = False)->Tuple[int, int]:
         if not code: return -1, -1
-        self.buffer.seek(0)
+        self.__buffer.seek(0)
         trim_code = code.strip()
         while True:
-            offset = self.buffer.tell()
-            line = self.buffer.readline()
+            offset = self.__buffer.tell()
+            line = self.__buffer.readline()
             if not line: return -1, -1
             trim_line = line.strip()
             if trim_line and trim_code.find(trim_line) >= 0 or trim_line.find(trim_code) >= 0:
                 print('>>>', line)
-                length = self.buffer.tell() - offset
-                self.buffer.seek(offset)
+                length = self.__buffer.tell() - offset
+                self.__buffer.seek(offset)
                 sqr_num, cur_num = 0, 0
                 logic_code = ''
                 while True:
@@ -91,7 +91,7 @@ class objcClass(object):
                     logic_code += char
                     if char == ';':
                         if sqr_num == 0:
-                            if cur_num == 0: length = self.buffer.tell() - offset
+                            if cur_num == 0: length = self.__buffer.tell() - offset
                             elif block_enabled: continue
                             return offset, length
                     elif char == '{':
@@ -99,7 +99,7 @@ class objcClass(object):
                     elif char == '}':
                         cur_num -= 1
                         if block_enabled and cur_num == 0 and sqr_num == 0:
-                            return offset, self.buffer.tell() - offset
+                            return offset, self.__buffer.tell() - offset
                     elif char == '[':
                         sqr_num += 1
                     elif char == ']':
@@ -114,21 +114,21 @@ class objcClass(object):
         offset, length = self.__search(code, block_enabled=True)
         if offset >= 0:
             truncate_length = self.length - length
-            self.buffer.seek(offset + length)
-            tail = self.buffer.read()
-            self.buffer.truncate(truncate_length)
-            self.buffer.seek(offset)
-            self.buffer.write(tail)
+            self.__buffer.seek(offset + length)
+            tail = self.__buffer.read()
+            self.__buffer.truncate(truncate_length)
+            self.__buffer.seek(offset)
+            self.__buffer.write(tail)
 
     def insert_within_method(self, method:str, code:str, refer:str = None, below_refer:bool = True):
         if not method: return
-        self.buffer.seek(0)
+        self.__buffer.seek(0)
         trim_refer = refer.strip()
         while True:
-            offset = self.buffer.tell()
-            line = self.buffer.readline()
+            offset = self.__buffer.tell()
+            line = self.__buffer.readline()
             if objc_method_pattern.search(line):
-                self.buffer.seek(offset)
+                self.__buffer.seek(offset)
                 if self.__read_method_def() != method: continue
                 cur_num, program_line = 0, ''
                 while True:
@@ -136,9 +136,9 @@ class objcClass(object):
                     if char == '{':
                         cur_num += 1
                         if not trim_refer:
-                            self.__insert(string='\n{}'.format(code), offset=self.buffer.tell())
+                            self.__insert(string='\n{}'.format(code), offset=self.__buffer.tell())
                             return
-                        offset = self.buffer.tell()
+                        offset = self.__buffer.tell()
                     elif char == '}':
                         cur_num -= 1
                     elif char == ';':
@@ -147,27 +147,27 @@ class objcClass(object):
                             trim_line = program_line.strip()
                             if trim_line and trim_line.find(trim_refer) >= 0 or trim_refer.find(trim_line) >= 0:
                                 if below_refer:
-                                    self.__insert(string='\n{}'.format(code), offset=self.buffer.tell())
+                                    self.__insert(string='\n{}'.format(code), offset=self.__buffer.tell())
                                 else:
                                     self.__insert(string='\n{}'.format(code), offset=offset)
                                 return
-                            offset = self.buffer.tell()
+                            offset = self.__buffer.tell()
 
     def dump_method_names(self):
-        self.buffer.seek(0)
+        self.__buffer.seek(0)
         s_pattern = re.compile(r'^\s*@implementation')
         e_pattern = re.compile(r'^\s*@end')
         in_scope = False
         while True:
-            offset = self.buffer.tell()
-            line = self.buffer.readline()
+            offset = self.__buffer.tell()
+            line = self.__buffer.readline()
             if not in_scope:
                 if not s_pattern.search(line): continue
                 in_scope = True
             else:
                 if e_pattern.search(line):break
                 if objc_method_pattern.search(line):
-                    self.buffer.seek(offset)
+                    self.__buffer.seek(offset)
                     print(self.__read_method_def())
                     self.__read_method_body()
 
@@ -206,7 +206,7 @@ class objcClass(object):
             elif char == ')':
                 parse_step = 3
             elif char == '{':
-                self.buffer.seek(self.buffer.tell() - 1)
+                self.__buffer.seek(self.__buffer.tell() - 1)
                 return name, param_type, param_name
             else:
                 if char in ' \t\n':
@@ -232,33 +232,33 @@ class objcClass(object):
                 if parse_step == 2: method_body += char
 
     def dump_import_headers(self):
-        self.buffer.seek(0)
+        self.__buffer.seek(0)
         while True:
-            line = self.buffer.readline()
+            line = self.__buffer.readline()
             if not line: return
             if re.search(r'^\s*#import', line): print(line[:-1])
 
     def dump_include_files(self):
-        self.buffer.seek(0)
+        self.__buffer.seek(0)
         while True:
-            line = self.buffer.readline()
+            line = self.__buffer.readline()
             if not line: return
             if re.search(r'^\s*#include', line): print(line[:-1])
 
     def dump(self):
-        self.buffer.seek(0)
-        return self.buffer.read()
+        self.__buffer.seek(0)
+        return self.__buffer.read()
 
     def save(self):
         with open(self.__file_path, mode='w') as fp:
-            self.buffer.seek(0)
-            fp.write(self.buffer.read())
+            self.__buffer.seek(0)
+            fp.write(self.__buffer.read())
 
     def dump_match_code(self, code:str, block_enabled:bool = True):
         offset, length = self.__search(code, block_enabled)
         print('match => offset:{} length:{}'.format(offset, length))
-        self.buffer.seek(offset)
-        return self.buffer.read(length)
+        self.__buffer.seek(offset)
+        return self.__buffer.read(length)
 
 if __name__ == '__main__':
     arguments = argparse.ArgumentParser()
