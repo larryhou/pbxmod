@@ -1,3 +1,226 @@
 # xcmod
 
-Xcode project tools for manipulating `*.pbxproj`|`*.plist`|`*.m[m]?` files
+Xcode project tools for manipulating `*.pbxproj`|`*.plist`|`*.m[m]?` files, and all operations can be configurated through a `json` file as following:
+
+
+```json
+{
+	"imports": {
+		"base_path": "~/Downloads/TheNextMOBA/",
+		"exclude": [
+			"meta"
+		],
+		"items": [
+			{
+				"path": "Assets/Plugins/iOS",
+				"type": "tree"
+			},
+			{
+				"path": "Assets/Editor/XUPorter/Mods/warsong.entitlements"
+			},
+			{
+				"path": "Assets/Plugins/MSDK/iOS/WGPlatformResources.bundle"
+			},
+			{
+				"path": "Assets/Plugins/MSDK/iOS/WGPlatformResources.bundle"
+			},
+			{
+				"path": "Assets/Plugins/MSDK/iOS/WGPlatformResources.bundle"
+			},
+			{
+				"path": "JavaScriptCore.framework"
+			},
+			{
+				"path": "CoreTelephony.framework"
+			},
+			{
+				"path": "ReplayKit.framework"
+			}
+		],
+		"embed": [
+			"Assets/Plugins/MSDK/iOS/MSDK.framework",
+			"Assets/Plugins/MSDK/iOS/MSDK.framework",
+			"Assets/Plugins/MSDK/iOS/MSDK.framework"
+		]
+	},
+	"settings": {
+		"CODE_SIGN_STYLE": "Automatic",
+		"DEVELOPMENT_TEAM": "PRLP6W5S32",
+		"CODE_SIGN_IDENTITY": "\"iPhone Developer\"",
+		"ENABLE_BITCODE": "NO",
+		"ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES": "YES",
+		"ARCHS": "arm64"
+	},
+	"compiler_flags": [
+
+	],
+	"link_flags": [
+
+	],
+	"class": [
+		{
+			"path": "Classes/UnityAppController.mm",
+			"imports": [
+				"MyGSDKObserver.h",
+				"<MNA_C11/MNAPublic.h>"
+			],
+			"includes": [
+				"<apollo/ApolloApplication.h>",
+				"<TDataMaster/TDataMasterApplication.h>",
+				"CrashReporter.h"
+			],
+			"injections": [
+				{
+					"code": "[[ApolloApplication sharedInstance] handleOpenURL:url];",
+					"func": "-(BOOL)application:openURL:sourceApplication:annotation:"
+				},
+				{
+					"code": "[[ApolloApplication sharedInstance] handleOpenURL:url];",
+					"replace": "//TODO [[ApolloApplication sharedInstance] handleOpenURL:url];"
+				}
+			]
+		}
+	],
+	"plist": {
+		"LSRequiresIPhoneOS": true,
+		"NSAppTransportSecurity": {
+			"NSAllowsArbitraryLoads": true
+		},
+		"UIApplicationExitsOnSuspend": false,
+		"UIPrerenderedIcon": false,
+		"UIRequiredDeviceCapabilities": [
+			"armv7"
+		],
+		"UIRequiresFullScreen": true,
+		"UIRequiresPersistentWiFi": false,
+		"UIStatusBarHidden": true,
+		"UIStatusBarStyle": "UIStatusBarStyleDefault",
+		"UISupportedInterfaceOrientations": [
+			"UIInterfaceOrientationLandscapeRight",
+			"UIInterfaceOrientationLandscapeLeft"
+		],
+		"Unity_LoadingActivityIndicatorStyle": -1,
+		"UnityCloudProjectID": "",
+		"UnityCrashSubmissionURL": "https://perf-events.cloud.unity3d.com/symbolicate",
+		"UIBackgroundModes": [
+			"remote-notification"
+		],
+		"MSDKCrashReporterEnable": "NO",
+		"CFBundleLocalizations": [
+			"ja_JP"
+		],
+		"CFBundleAllowMixedLocalizations": true,
+		"ScreenRecording": {
+			"TIPS_SAVE_IMAGE_SUCCESS": "カメラロールに保存されました",
+			"BUTTON_CANCEL": "キャンセル",
+			"BUTTON_SAVE": "保存",
+			"BUTTON_CONFIRM": "確認",
+			"BUTTON_SHARE": "シェア",
+			"TIPS_SAVE_VIDEO_SUCCESS": "カメラロールに保存されました",
+			"TIPS_SAVE_IMAGE_FAILURE": "カメラロールに保存失敗しました",
+			"TIPS_SAVE_VIDEO_FAILURE": "カメラロールに保存失敗しました"
+		},
+		"NSPhotoLibraryAddUsageDescription": "許可されていない場合、ショータイムの動画を保存することはできません。",
+		"NSMicrophoneUsageDescription": "許可されていない場合、対戦中にボイスチャートすることはできません。",
+		"NSCameraUsageDescription": "許可されていない場合、WarSongの生放送機能を利用ことはできません。",
+		"CFBundleURLTypes": [
+			{
+				"CFBundleURLSchemes": [
+					"com.larryhou.samples.warsong"
+				],
+				"CFBundleTypeRole": "Editor"
+			},
+			{
+				"CFBundleURLName": "TheNextMoba",
+				"CFBundleURLSchemes": [
+					"thenextmoba"
+				]
+			},
+			{
+				"CFBundleURLName": "warsong.jp",
+				"CFBundleURLSchemes": [
+					"warsongmoba"
+				]
+			},
+			{
+				"CFBundleURLName": "weixin",
+				"CFBundleURLSchemes": [
+					"ab8861342dfc"
+				],
+				"CFBundleTypeRole": "Editor"
+			},
+			{
+				"CFBundleURLName": "tencentopenapi",
+				"CFBundleURLSchemes": [
+					"tencent5738464"
+				],
+				"CFBundleTypeRole": "Editor"
+			},
+			{
+				"CFBundleURLName": "QQ",
+				"CFBundleURLSchemes": [
+					"QQ578FE0"
+				],
+				"CFBundleTypeRole": "Editor"
+			},
+			{
+				"CFBundleURLName": "QQLaunch",
+				"CFBundleURLSchemes": [
+					"tencentlaunch5738464"
+				],
+				"CFBundleTypeRole": "Editor"
+			}
+		],
+		"NSPhotoLibraryUsageDescription": "許可されていない場合、ショータイムの動画を保存することはできません。",
+		"YoutubeVideoUpload": {
+			"UPLOAD_TITLE": "戦歌を詠う英雄達、雄峰に集まる！",
+			"TIPS_UPLOAD_FAILURE": "アップデート失敗しました",
+			"BUTTON_VIEW_IN_YOUTUBE": "Youtubeへ",
+			"TITLE_ERROR": "アップデートエラー",
+			"UPLOAD_DESCRIPTION": "戦歌を詠う英雄達、雄峰に集まる！",
+			"BUTTON_CLOSE": "閉じる",
+			"TIPS_UPLOAD_NETWORK_ERROR": "通信に失敗しました。通信環境の良いところで再度お試しください。",
+			"TITLE_WATCH_ERROR": "通信エラー",
+			"TIPS_UPLOAD_SUCCESS": "アップデート完了しました"
+		},
+		"TDM": {
+			"Protocol": "TCP",
+			"AppChannel": "iOS",
+			"AppId": "1205969"
+		},
+		"NSLocationWhenInUseUsageDescription": "Warsong使用定位服务",
+		"Apollo": {
+			"ReportServer": "udp://qos.gcloud.qq.com:8011"
+		},
+		"QQAppKey": "qTX8RGPUfqWo",
+		"MSDK_Webview_Landscape_NavBar_Hideable": true,
+		"MSDK_OfferId": "1450484",
+		"WXAppID": "ab8861342dfc",
+		"MSDKKey": "545cd96b795691264c81e45f5",
+		"NoticeTime": 900.0,
+		"AutoRefreshToken": true,
+		"MSDK_ENV": "release",
+		"MSDK_Webview_Portrait_NavBar_Hideable": false,
+		"QQAppID": "5738464",
+		"MSDK_PUSH_SWITCH": true,
+		"NeedNotice": true,
+		"CHANNEL_DENGTA": "2371",
+		"MSDK_REAL_NAME_AUTH_SWITCH": 1.0,
+		"LSApplicationQueriesSchemes": [
+			"mqq",
+			"mqqapi",
+			"wtloginmqq2",
+			"mqqopensdkapiV4",
+			"mqqopensdkapiV3",
+			"mqqopensdkapiV2",
+			"mqqwpa",
+			"mqqOpensdkSSoLogin",
+			"mqqgamebindinggroup",
+			"mqqopensdkfriend",
+			"mqzone",
+			"weixin",
+			"wechat"
+		]
+	}
+}
+```
