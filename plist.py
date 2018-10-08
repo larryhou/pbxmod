@@ -242,7 +242,7 @@ class plistObject(object):
         self.__buffer.close()
 
     def __wrap_text(self, data:str)->str:
-        if data.find('\n') >= 0:
+        if data.find('<') >= 0:
             return '<![CDATA[{}]]>'.format(data)
         else:return data
 
