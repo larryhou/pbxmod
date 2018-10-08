@@ -43,13 +43,33 @@
 		"CODE_SIGN_IDENTITY": "\"iPhone Developer\"",
 		"ENABLE_BITCODE": "NO",
 		"ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES": "YES",
-		"ARCHS":"arm64"
+		"ARCHS": "arm64"
 	},
 	"compiler_flags": [
 
 	],
 	"link_flags": [
 
+	],
+	"class": [
+		{
+			"path": "Classes/UnityAppController.mm",
+			"imports": [
+				"MyGSDKObserver.h",
+				"<MNA_C11/MNAPublic.h>"
+			],
+			"includes": [
+				"<apollo/ApolloApplication.h>",
+				"<TDataMaster/TDataMasterApplication.h>",
+				"CrashReporter.h"
+			],
+			"injections": [
+				{
+					"entry": "-(BOOL)application:openURL:sourceApplication:annotation:",
+					"code": "[[ApolloApplication sharedInstance] handleOpenURL:url];"
+				}
+			]
+		}
 	],
 	"plist": {
 		"LSRequiresIPhoneOS": true,
