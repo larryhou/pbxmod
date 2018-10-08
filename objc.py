@@ -11,8 +11,8 @@ class objcClass(object):
         assert os.path.isfile(file_path)
         with open(file_path, mode='r+') as fp:
             self.__buffer:io.StringIO = io.StringIO(fp.read())
-        # self.dump_import_headers()
-        # self.dump_include_files()
+        self.dump_import_headers()
+        self.dump_include_files()
         self.dump_method_names()
 
     def __read(self, size:int = 1):
@@ -270,19 +270,21 @@ class objcClass(object):
 if __name__ == '__main__':
     arguments = argparse.ArgumentParser()
     arguments.add_argument('--objc-file', '-f', required=True)
+    arguments.add_argument('--run-test', '-t', action='store_true')
     options = arguments.parse_args(sys.argv[1:])
     objc = objcClass(file_path=options.objc_file)
-    objc.import_header('MyMNAObserver.h')
-    objc.import_header('<GSDK_C11/GSDK.h>')
-    objc.include_class('UI/OrientationSupport.h')
-    print(objc.dump_match_code('NSAssert(![self respondsToSelector: @selector(createUnityViewImpl)]'))
-    print(objc.dump_match_code('AppController_SendNotificationWithArg(kUnityDidRegiste'))
-    print(objc.dump_match_code('if (UnityIsPaused() && _wasPausedExternal == false'))
-    objc.insert_within_method('-(NSUInteger)application:supportedInterfaceOrientationsForWindow:', code='::printf("insert_within_method");')
-    objc.insert_within_method('-(BOOL)application:openURL:sourceApplication:annotation:',
-                              code='::printf("insert_within_method");', refer='ADD_ITEM(sourceApplication);', below_refer=True)
-    objc.insert_above('[[ApolloApplication sharedInstance] application:application didFail', code='::printf("insert_above");')
-    objc.insert_below('[[ApolloApplication sharedInstance] application:application didFail',
-                      code='::printf("insert_below");')
-    objc.replace('[MSDKXG WGFailedRegisteredAPNS];', '    //TODO ;')
-    print(objc.dump())
+    if options.run_test:
+        objc.import_header('MyMNAObserver.h')
+        objc.import_header('<GSDK_C11/GSDK.h>')
+        objc.include_class('UI/OrientationSupport.h')
+        print(objc.dump_match_code('NSAssert(![self respondsToSelector: @selector(createUnityViewImpl)]'))
+        print(objc.dump_match_code('AppController_SendNotificationWithArg(kUnityDidRegiste'))
+        print(objc.dump_match_code('if (UnityIsPaused() && _wasPausedExternal == false'))
+        objc.insert_within_method('-(NSUInteger)application:supportedInterfaceOrientationsForWindow:', code='::printf("insert_within_method");')
+        objc.insert_within_method('-(BOOL)application:openURL:sourceApplication:annotation:',
+                                  code='::printf("insert_within_method");', refer='ADD_ITEM(sourceApplication);', below_refer=True)
+        objc.insert_above('[[ApolloApplication sharedInstance] application:application didFail', code='::printf("insert_above");')
+        objc.insert_below('[[ApolloApplication sharedInstance] application:application didFail',
+                          code='::printf("insert_below");')
+        objc.replace('[MSDKXG WGFailedRegisteredAPNS];', '    //TODO ;')
+        print(objc.dump())
