@@ -64,12 +64,12 @@ class objcClass(object):
     def insert_below(self, refer:str, code:str):
         offset, length = self.__search(refer, block_enabled=True)
         if offset >= 0:
-            self.__insert('\n{}'.format(code), offset + length)
+            self.__insert('\n    {}'.format(code), offset + length)
 
     def insert_above(self, refer:str, code:str):
         offset, length = self.__search(refer, block_enabled=True)
         if offset >= 0:
-            self.__insert('{}\n'.format(code), offset)
+            self.__insert('    {}\n'.format(code), offset)
 
     def __search(self, code:str, block_enabled:bool = False)->Tuple[int, int]:
         if not code: return -1, -1
@@ -123,7 +123,7 @@ class objcClass(object):
     def insert_within_method(self, method:str, code:str, refer:str = None, below_refer:bool = True):
         if not method: return
         self.__buffer.seek(0)
-        trim_refer = refer.strip()
+        trim_refer = refer.strip() if refer else ''
         while True:
             offset = self.__buffer.tell()
             line = self.__buffer.readline()
@@ -136,22 +136,28 @@ class objcClass(object):
                     if char == '{':
                         cur_num += 1
                         if not trim_refer:
-                            self.__insert(string='\n{}'.format(code), offset=self.__buffer.tell())
+                            self.__insert(string='\n    {}'.format(code), offset=self.__buffer.tell())
                             return
                         offset = self.__buffer.tell()
                     elif char == '}':
                         cur_num -= 1
+                        if cur_num == 0: return
                     elif char == ';':
                         program_line += char
                         if cur_num == 1:
                             trim_line = program_line.strip()
-                            if trim_line and trim_line.find(trim_refer) >= 0 or trim_refer.find(trim_line) >= 0:
+                            print('+++', trim_line)
+                            if trim_line and (trim_line.find(trim_refer) >= 0 or trim_refer.find(trim_line) >= 0):
+                                print('... {!r} {!r}'.format(program_line, trim_line), len(trim_line), trim_line.find(trim_refer), trim_refer.find(trim_line), bool(trim_line))
                                 if below_refer:
-                                    self.__insert(string='\n{}'.format(code), offset=self.__buffer.tell())
+                                    self.__insert(string='\n    {}'.format(code), offset=self.__buffer.tell())
                                 else:
-                                    self.__insert(string='\n{}'.format(code), offset=offset)
+                                    self.__insert(string='\n    {}'.format(code), offset=offset)
                                 return
                             offset = self.__buffer.tell()
+                            program_line = ''
+                    else:
+                        program_line += char
 
     def dump_method_names(self):
         self.__buffer.seek(0)
@@ -268,7 +274,14 @@ if __name__ == '__main__':
     objc.import_header('MyMNAObserver.h')
     objc.import_header('<GSDK_C11/GSDK.h>')
     objc.include_class('UI/OrientationSupport.h')
-    # print(objc.dump())
     print(objc.dump_match_code('NSAssert(![self respondsToSelector: @selector(createUnityViewImpl)]'))
     print(objc.dump_match_code('AppController_SendNotificationWithArg(kUnityDidRegiste'))
     print(objc.dump_match_code('if (UnityIsPaused() && _wasPausedExternal == false'))
+    objc.insert_within_method('-(NSUInteger)application:supportedInterfaceOrientationsForWindow:', code='::printf("hello larryhou");')
+    objc.insert_within_method('-(BOOL)application:openURL:sourceApplication:annotation:',
+                              code='::printf("hello larryhou");', refer='ADD_ITEM(sourceApplication);', below_refer=True)
+    objc.insert_above('[[ApolloApplication sharedInstance] application:application didFail', code='::printf("insert_above");')
+    objc.insert_below('[[ApolloApplication sharedInstance] application:application didFail',
+                      code='::printf("insert_below");')
+    objc.replace('[MSDKXG WGFailedRegisteredAPNS];', '    //TODO [MSDKXG WGFailedRegisteredAPNS];')
+    print(objc.dump())
