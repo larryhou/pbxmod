@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import argparse, sys, os, io, json, enum, hashlib, time, random, re, tempfile, shutil
+import argparse, sys, os, io, json, enum, hashlib, time, random, re, tempfile
 from typing import List, Dict, Tuple, Pattern
 
 TERMINATOR_CHARSET = b' \t\n,;'
@@ -170,9 +170,8 @@ class XcodeProject(object):
         return self.__pbx_project
 
     def save_pbxproj(self):
-        suffix = time.strftime('_%Y-%m-%d_%H%M%S', time.localtime())
-        backup_path = re.sub(r'(\.pbxproj)$', r'{}\g<1>'.format(suffix), self.__pbx_project_path)
-        shutil.copy(self.__pbx_project_path, backup_path)
+        import utils
+        utils.backup(file_path=self.__pbx_project_path)
         with open(self.__pbx_project_path, mode='w') as fp:
             fp.write('// !$*UTF8*$!\n')
             fp.write(self.dump_pbxproj(note_enabled=True, json_format_enabled=False))
@@ -272,6 +271,30 @@ class XcodeProject(object):
         self.save_pbxproj()
         # merge plist settings
         self.merge_plist(xcmod.get('plist'))
+        # merge class injections
+        self.merge_class(xcmod.get('class'))
+
+    def merge_class(self, data:List[Dict[str, any]]):
+        if not data: return
+        from objc import objcClass
+        for item in data:
+            location = os.path.join(self.__xcode_project_path, item.get('path'))
+            if not os.path.exists(location): continue
+            objc = objcClass(file_path=location)
+            import_headers = item.get('imports') # type: list[str]
+            if import_headers:
+                for header in import_headers: objc.import_header(header)
+            include_classes = item.get('includes') # type: list[str]
+            if include_classes:
+                for class_item in include_classes: objc.include_class(class_item)
+            injections = item.get('injections') # type: list[dict[str,str]]
+            if injections:
+                for code in injections:
+                    if code.get('replace'):
+                        objc.replace(code=code.get('code'), replacement=code.get('replace'))
+                    else:
+                        objc.insert_within_method(method=code.get('func'), code=code.get('code'))
+            objc.save()
 
     def merge_plist(self, data:Dict[str, any]):
         if not data: return

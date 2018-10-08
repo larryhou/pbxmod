@@ -65,8 +65,12 @@
 			],
 			"injections": [
 				{
-					"entry": "-(BOOL)application:openURL:sourceApplication:annotation:",
+					"func": "-(BOOL)application:openURL:sourceApplication:annotation:",
 					"code": "[[ApolloApplication sharedInstance] handleOpenURL:url];"
+				},
+				{
+					"replace": "[[ApolloApplication sharedInstance] handleOpenURL:url];",
+					"code": "//TODO [[ApolloApplication sharedInstance] handleOpenURL:url];"
 				}
 			]
 		}

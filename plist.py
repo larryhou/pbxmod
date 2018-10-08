@@ -313,6 +313,8 @@ class plistObject(object):
         if not file_path:
             assert self.__buffer
             file_path = self.__buffer.name
+        import utils
+        utils.backup(file_path)
         with open(file_path, mode='w') as fp:
             fp.write(self.dump())
 

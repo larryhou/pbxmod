@@ -257,6 +257,8 @@ class objcClass(object):
         return self.__buffer.read()
 
     def save(self):
+        import utils
+        utils.backup(file_path=self.__file_path)
         with open(self.__file_path, mode='w') as fp:
             self.__buffer.seek(0)
             fp.write(self.__buffer.read())
