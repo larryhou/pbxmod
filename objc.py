@@ -48,15 +48,12 @@ class objcClass(object):
         tail = self.__buffer.read()
         replacement_length = len(replacement) if replacement else 0
         if replacement_length < length:
-            # print('truncate_s {} {!r}'.format(self.length, self.__read_tail()))
             self.__buffer.truncate(buffer_length - (length - replacement_length))
-            # print('truncate_e {} {!r}'.format(self.length, self.__read_tail()))
         self.__buffer.seek(offset)
         if replacement:
             self.__buffer.write(replacement)
         if tail:
             self.__buffer.write(tail)
-        # print('truncate_= {} {!r}'.format(self.length, self.__read_tail()))
 
     def import_header(self, header:str):
         if header.find('<') < 0 and not header.startswith('"'):
@@ -88,7 +85,6 @@ class objcClass(object):
             if not line: return -1, -1
             trim_line = line.strip()
             if trim_line and trim_code.find(trim_line) >= 0 or trim_line.find(trim_code) >= 0:
-                # print('>>>', line)
                 length = self.__buffer.tell() - offset
                 self.__buffer.seek(offset)
                 sqr_num, cur_num = 0, 0
@@ -153,9 +149,7 @@ class objcClass(object):
                         program_line += char
                         if cur_num == 1:
                             trim_line = program_line.strip()
-                            # print('+++', trim_line)
                             if trim_line and (trim_line.find(trim_refer) >= 0 or trim_refer.find(trim_line) >= 0):
-                                # print('... {!r} {!r}'.format(program_line, trim_line), len(trim_line), trim_line.find(trim_refer), trim_refer.find(trim_line), bool(trim_line))
                                 if below_refer:
                                     self.__insert(string='\n    {}'.format(code), offset=self.__buffer.tell())
                                 else:
