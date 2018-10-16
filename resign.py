@@ -40,7 +40,10 @@ def resign_ipa(ipa_file:str, mobile_provision:str, identity:str, entitlements:st
     pipe = os.popen('find {} \\( -iname "*.framework" -o -iname "*.dylib" \\)'.format(app_path))
     for library_item in pipe.readlines():
         script.write('codesign -v -f -s {!r} {!r}\n'.format(identity, library_item[:-1]))
-    script.write('codesign -v -f -s {!r} --entitlements={!r} --timestamp=none {!r}\n'.format(identity, xcent_path, app_path))
+    if entitlements:
+        script.write('codesign -v -f -s {!r} --entitlements={!r} --timestamp=none {!r}\n'.format(identity, xcent_path, app_path))
+    else:
+        script.write('codesign -v -f -s {!r} --preserve-metadata=entitlements --timestamp=none {!r}\n'.format(identity, app_path))
     script.write('codesign -d --entitlements - {!r}\n'.format(app_path))
     script.write('zip -yr {}_resign.ipa Payload\n'.format(app_name))
     script.seek(0)
