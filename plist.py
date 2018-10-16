@@ -8,9 +8,12 @@ SPACE_CHATSET = b' \t\r\n'
 class plistObject(object):
     def __init__(self):
         self.__properties:dict[str, str] = {}
-        self.__data = {}
-        self.__buffer:io.BufferedReader = None
+        self.__data = {'data':{}}
+        self.__buffer = None
         self.__doctype:str = None
+
+    @property
+    def data(self)->Dict[str, any]: return self.__data.get('data')
 
     def __read(self, size:int = 1)->bytes:
         char:bytes = self.__buffer.read(size)
@@ -241,10 +244,21 @@ class plistObject(object):
         self.__data = self.__read_object()
         self.__buffer.close()
 
+    def load_bytes(self, data:bytes):
+        self.__buffer = io.BytesIO(data)
+        self.__properties = self.__read_properties()
+        self.__data = self.__read_object()
+
     def __wrap_text(self, data:str)->str:
         if data.find('<') >= 0:
             return '<![CDATA[{}]]>'.format(data)
         else:return data
+
+    def dump_dict(self, data:Dict[str, any])->str:
+        buffer = io.StringIO()
+        self.__dump_data(data, buffer)
+        buffer.seek(0)
+        return buffer.read()
 
     def __dump_data(self, data, buffer:io.StringIO, indent:str='    ', padding:str=''):
         if isinstance(data, dict):
@@ -297,8 +311,12 @@ class plistObject(object):
             for name, value in self.__properties.items():
                 buffer.write(' {}="{}"'.format(name, value))
             buffer.write('?>\n')
+        else:
+            buffer.write('<?xml version="1.0" encoding="UTF-8"?>\n')
         if self.__doctype:
             buffer.write('<!DOCTYPE {}>\n'.format(self.__doctype))
+        else:
+            buffer.write('<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n')
         buffer.write('<plist')
         for name, value in self.__data.items():
             if name == 'data': continue
@@ -310,11 +328,11 @@ class plistObject(object):
         return buffer.read()
 
     def save(self, file_path:str = None):
-        if not file_path:
-            assert self.__buffer
-            file_path = self.__buffer.name
         import utils
-        utils.backup(file_path)
+        if self.__buffer and isinstance(self.__buffer, io.BufferedReader):
+            if not file_path or os.path.abspath(self.__buffer.name) == os.path.abspath(file_path):
+                file_path = self.__buffer.name
+                utils.backup(file_path)
         with open(file_path, mode='w') as fp:
             fp.write(self.dump())
 
